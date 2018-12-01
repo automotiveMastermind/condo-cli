@@ -7,16 +7,9 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"os"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/docker/docker/pkg/term"
 	"github.com/spf13/cobra"
 )
 
@@ -35,9 +28,6 @@ Some of the most-used features of the build system include:
 	* Packing NuGet packages
 	* Pushing (Publishing) NuGet packages
 	`,
-	Run: func(cmd *cobra.Command, args []string) {
-		run(args)
-	},
 }
 
 // Execute command
@@ -46,57 +36,4 @@ func Execute() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-}
-
-func run(args []string) {
-	imageName := "automotivemastermind/condo"
-	ctx := context.Background()
-	cli, err := client.NewClientWithOpts(client.WithVersion("1.39"))
-	if err != nil {
-		panic(err)
-	}
-
-	// pull condo image
-	reader, err := cli.ImagePull(ctx, imageName, types.ImagePullOptions{})
-	if err != nil {
-		panic(err)
-	}
-	defer reader.Close()
-
-	// format and print docker output
-	termFd, isTerm := term.GetFdInfo(os.Stderr)
-	jsonmessage.DisplayJSONMessagesStream(reader, os.Stderr, termFd, isTerm, nil)
-
-	// create condo container
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:      imageName,
-		Cmd:        []string{"condo"},
-		WorkingDir: "/target",
-		Tty:        true,
-	}, nil, nil, "")
-	if err != nil {
-		panic(err)
-	}
-
-	// start container
-	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		panic(err)
-	}
-
-	// wait for container to start
-	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-	select {
-	case err := <-errCh:
-		if err != nil {
-			panic(err)
-		}
-	case <-statusCh:
-	}
-
-	// output container logs
-	out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true})
-	if err != nil {
-		panic(err)
-	}
-	io.Copy(os.Stdout, out)
 }

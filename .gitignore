@@ -1,5 +1,6 @@
 # Build results 
 [Aa]rtifacts/
+condo-cli
 
 # Binaries for programs and plugins
 *.exe
