@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/term"
@@ -56,13 +58,25 @@ func run() {
 	termFd, isTerm := term.GetFdInfo(os.Stderr)
 	jsonmessage.DisplayJSONMessagesStream(reader, os.Stderr, termFd, isTerm, nil)
 
+	// current path
+	pwd, _ := filepath.Abs("./")
+
 	// create condo container
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:      imageName,
 		Cmd:        []string{"condo"},
 		WorkingDir: "/target",
 		Tty:        true,
-	}, nil, nil, "")
+	},
+		&container.HostConfig{
+			Mounts: []mount.Mount{
+				{
+					Type:   mount.TypeBind,
+					Source: pwd,
+					Target: "/target",
+				},
+			},
+		}, nil, "")
 	if err != nil {
 		panic(err)
 	}
@@ -87,5 +101,7 @@ func run() {
 	if err != nil {
 		panic(err)
 	}
+	defer out.Close()
+
 	io.Copy(os.Stdout, out)
 }
