@@ -1,0 +1,18 @@
+version: 2
+jobs:
+  build:
+    working_directory: /target
+    docker:
+      - image: automotivemastermind/condo:latest
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Run condo
+          command: 'condo -- /t:ci'
+      - store_artifacts:
+          path: artifacts/condo.msbuild.rsp
+          destination: logs/condo.msbuild.rsp
+      - store_artifacts:
+          path: artifacts/condo.msbuild.log
+          destination: logs/condo.msbuild.log
