@@ -19,7 +19,7 @@ import (
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "run condo against current path",
-	Long:  `Will pull automotiveMastermind/condo:lastest and run run it against the current psssath.`,
+	Long:  `Will pull automotiveMastermind/condo:beta-golang and run it against the current path.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		run()
 	},
@@ -40,7 +40,7 @@ func init() {
 }
 
 func run() {
-	imageName := "automotivemastermind/condo"
+	imageName := "automotivemastermind/condo:beta-golang"
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.39"))
 	if err != nil {
