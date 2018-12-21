@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -14,6 +16,21 @@ import (
 	"github.com/docker/docker/pkg/term"
 	"github.com/spf13/cobra"
 )
+
+// RunOptions contains the input for the run command
+type RunOptions struct {
+	ImageTag string
+	Args     []string
+}
+
+// NewRunOptions creates a default RunOptions with ImageTag set to beta-golang
+func NewRunOptions() *RunOptions {
+	return &RunOptions{
+		ImageTag: "beta-golang",
+	}
+}
+
+var options = NewRunOptions()
 
 // runCmd represents the run command
 var runCmd = &cobra.Command{
@@ -26,21 +43,14 @@ var runCmd = &cobra.Command{
 }
 
 func init() {
+	runCmd.Flags().StringVar(&options.ImageTag, "image-tag", options.ImageTag, "Sets the condo image tag to use when running")
+	runCmd.Flags().StringSliceVar(&options.Args, "args", options.Args, "Sets condo arguments")
+
 	rootCmd.AddCommand(runCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// runCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// runCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 func run() {
-	imageName := "automotivemastermind/condo:beta-golang"
+	imageName := fmt.Sprintf("automotivemastermind/condo:%s", options.ImageTag)
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.39"))
 	if err != nil {
@@ -64,7 +74,7 @@ func run() {
 	// create condo container
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:      imageName,
-		Cmd:        []string{"condo"},
+		Cmd:        []string{"condo", "--", strings.Join(options.Args, " ")},
 		WorkingDir: "/target",
 		Tty:        true,
 	},
