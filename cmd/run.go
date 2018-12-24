@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/docker/pkg/term"
 	"github.com/spf13/cobra"
 )
@@ -73,10 +73,11 @@ func run() {
 
 	// create condo container
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:      imageName,
-		Cmd:        []string{"condo", "--", strings.Join(options.Args, " ")},
-		WorkingDir: "/target",
-		Tty:        true,
+		Image:        imageName,
+		Cmd:          []string{"condo", "--", strings.Join(options.Args, " ")},
+		WorkingDir:   "/target",
+		AttachStderr: true,
+		AttachStdout: true,
 	},
 		&container.HostConfig{
 			Mounts: []mount.Mount{
@@ -96,22 +97,15 @@ func run() {
 		panic(err)
 	}
 
-	// wait for container to start
-	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-	select {
-	case err := <-errCh:
-		if err != nil {
-			panic(err)
-		}
-	case <-statusCh:
-	}
-
 	// output container logs
-	out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true})
+	out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+	})
 	if err != nil {
 		panic(err)
 	}
-	defer out.Close()
 
-	io.Copy(os.Stdout, out)
+	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
 }
