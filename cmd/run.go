@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -21,12 +22,16 @@ import (
 type RunOptions struct {
 	ImageTag string
 	Args     []string
+	GoOS     string
+	GoArch   string
 }
 
 // NewRunOptions creates a default RunOptions with ImageTag set to beta-golang
 func NewRunOptions() *RunOptions {
 	return &RunOptions{
 		ImageTag: "beta-golang",
+		GoOS:     runtime.GOOS,
+		GoArch:   runtime.GOARCH,
 	}
 }
 
@@ -44,6 +49,8 @@ var runCmd = &cobra.Command{
 
 func init() {
 	runCmd.Flags().StringVar(&options.ImageTag, "image-tag", options.ImageTag, "Sets the condo image tag to use when running")
+	runCmd.Flags().StringVar(&options.GoOS, "os", options.GoOS, "Sets the default OS to build")
+	runCmd.Flags().StringVar(&options.GoArch, "arch", options.GoArch, "Sets the default Arch to build")
 	runCmd.Flags().StringSliceVar(&options.Args, "args", options.Args, "Sets condo arguments")
 
 	rootCmd.AddCommand(runCmd)
@@ -78,6 +85,7 @@ func run() {
 		WorkingDir:   "/target",
 		AttachStderr: true,
 		AttachStdout: true,
+		Env:          []string{"GOOS=" + options.GoOS, "GOARCH=" + options.GoArch},
 	},
 		&container.HostConfig{
 			Mounts: []mount.Mount{
