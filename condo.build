@@ -11,7 +11,7 @@
     <License>MIT</License>
     <LicenseUri>https://opensource.org/licenses/MIT</LicenseUri>
 
-    <GO_PUBLISH_TARGETS>darwin/amd64;linux/amd64;windows/amd64</GO_PUBLISH_TARGETS>
+    <GO_TARGETS>darwin/amd64;linux/amd64;windows/amd64</GO_TARGETS>
   </PropertyGroup>
 
   <Import Project="$(CondoTargetsPath)Lifecycle.targets" />
