@@ -6,7 +6,7 @@
 
 package main
 
-import "./cmd"
+import "github.com/automotiveMastermind/condo-cli/cmd"
 
 func main() {
 	cmd.Execute()
