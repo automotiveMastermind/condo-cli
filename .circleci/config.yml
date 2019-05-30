@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: /target
     docker:
-      - image: automotivemastermind/condo:latest
+      - image: automotivemastermind/condo:beta-golang
     steps:
       - checkout
       - setup_remote_docker
