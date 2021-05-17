@@ -59,7 +59,7 @@ func init() {
 func run() {
 	imageName := fmt.Sprintf("automotivemastermind/condo:%s", options.ImageTag)
 	ctx := context.Background()
-	cli, err := client.NewClientWithOpts(client.WithVersion("1.39"))
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
@@ -95,7 +95,7 @@ func run() {
 					Target: "/target",
 				},
 			},
-		}, nil, "")
+		}, nil, nil, "")
 	if err != nil {
 		panic(err)
 	}
