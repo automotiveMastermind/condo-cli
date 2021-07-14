@@ -204,7 +204,7 @@ func createCluster() {
 
 func createIngress() {
 	log.Info("Creating ingress...")
-	deploymentURI := "https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml"
+	deploymentURI := "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/kind/deploy.yaml"
 
 	cmd := exec.Command("kubectl", "apply", "-f", deploymentURI)
 
@@ -293,7 +293,7 @@ func installGitServer() {
 		"--pull=missing",
 		"--name=git-server",
 		"-v"+clusterRootPath+":/git-server/repos",
-		"-v"+clusterRootPath+"/.ssh/identity:/git-server/keys/identity",
+		"-v"+clusterRootPath+"/.ssh:/git-server/keys",
 		"jkarlos/git-server-docker",
 	)
 
