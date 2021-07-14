@@ -52,34 +52,150 @@ var (
 
 	clusterRootPath = ""
 
-	// clusterCmd represents the cluster command
-	clusterCmd = &cobra.Command{
-		Use:   "cluster",
-		Short: "A brief description of your command",
-		Long: `A longer description that spans multiple lines and likely contains examples
+	/*
+		KNOWN ISSUE:
+		Reference: https://github.com/spf13/cobra/issues/362
+
+		A command cannot have more than one parent command or else it only
+		attaches to the last parent command attached.
+		(works like a pointer reference)
+
+		Temp solution:
+		Create multiple cluster commands that attach to the different
+		parent with different run functions
+
+	*/
+
+	clusterUseStr   string = "cluster"
+	clusterShortStr string = "A brief description of your command"
+	clusterLongStr  string = `A longer description that spans multiple lines and likely contains examples
     and usage of using your command. For example:
     
     Cobra is a CLI library for Go that empowers applications.
     This application is a tool to generate the needed files
-    to quickly create a Cobra application.`,
+    to quickly create a Cobra application.`
+
+	// clusterCmd represents the cluster command specific to the create command
+	clusterCreateCmd = &cobra.Command{
+		Use:   clusterUseStr,
+		Short: clusterShortStr,
+		Long:  clusterLongStr,
+
 		Run: func(cmd *cobra.Command, args []string) {
+
 			cluster()
+
+		},
+	}
+	// clusterCmd represents the cluster command specific to the destroy command
+	clusterDestroyCmd = &cobra.Command{
+		Use:   clusterUseStr,
+		Short: clusterShortStr,
+		Long:  clusterLongStr,
+		Run: func(cmd *cobra.Command, args []string) {
+
+			destroyCluster()
+
 		},
 	}
 )
 
 func init() {
 	// flags
-	clusterCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
-	clusterCmd.Flags().StringVar(&clusterOptions.Image, "image", clusterOptions.Image, "Sets the image to use for the cluster")
-	clusterCmd.Flags().StringVar(&clusterOptions.Version, "version", clusterOptions.Version, "Sets the image version for the cluster")
+	clusterCreateCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
+	clusterCreateCmd.Flags().StringVar(&clusterOptions.Image, "image", clusterOptions.Image, "Sets the image to use for the cluster")
+	clusterCreateCmd.Flags().StringVar(&clusterOptions.Version, "version", clusterOptions.Version, "Sets the image version for the cluster")
+
+	clusterDestroyCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
 
 	// add cluster cmd to create
-	createCmd.AddCommand(clusterCmd)
+	createCmd.AddCommand(clusterCreateCmd)
+
+	//add cluster cmd to destroy
+	destroyCommand.AddCommand(clusterDestroyCmd)
+
+}
+
+func destroyCluster() {
+	dockerCheck()
+	removeGitServerDockerContainer()
+	removeClusterNodes()
+
+	log.Info("Cluster destroyed")
+
+}
+
+//removes 'git-server' container from the system's instance of docker
+func removeGitServerDockerContainer() {
+	log.Info("Removing container git-server from docker")
+
+	//stop the git-server container
+	dockerStopCmd := exec.Command(
+		"docker",
+		"stop",
+		"git-server",
+	)
+	var dockerStopErr error
+	dockerStopErr = dockerStopCmd.Run()
+	if dockerStopErr != nil {
+
+		log.Infof("error at line 109:  %v", dockerStopErr)
+	}
+
+	//remove the git-server container
+	dockerRemoveCmd := exec.Command(
+		"docker",
+		"rm",
+		"git-server",
+	)
+	var dockerRemoveErr error
+	dockerRemoveErr = dockerRemoveCmd.Run()
+	if dockerRemoveErr != nil {
+
+		log.Infof("error at line 109:  %v", dockerRemoveErr)
+	}
+
+	log.Info("git-server removed from docker")
+
+}
+
+//removes cluster nodes using kind. Use '--name [clusterName]' to specify the cluster name if not default
+func removeClusterNodes() {
+	log.Info("Removing cluster \"" + clusterOptions.Name + "\" from docker")
+
+	nameFlag := fmt.Sprintf("--name=%s", clusterOptions.Name)
+
+	cmd := exec.Command("kind", "delete", "cluster", nameFlag)
+
+	var err error
+	err = cmd.Run()
+	if err != nil {
+		log.Infof("error at line 128:  %v", err)
+	}
+
+	log.Info("cluster \"" + clusterOptions.Name + "\" removed from docker")
+
+}
+
+//check if docker engine is running
+func dockerCheck() {
+
+	log.Info("Looking for docker instance...")
+	cmd := exec.Command("docker", "ps")
+
+	var err error
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("No docker instance found:  %v", err)
+	}
+
+	log.Info("Docker instance found")
+
 }
 
 func cluster() {
 	log.Info("Hello! Welcome to condo create cluster!")
+	dockerCheck()
 	checkExecDependencies()
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
