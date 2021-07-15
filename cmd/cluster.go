@@ -39,7 +39,7 @@ import (
 
 var CLUSTER_CONFIG_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/config.yaml"
 var CLUSTER_GIT_SERVICE_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/git-service.yaml"
-var CLUSTER_CONFIG_MAP_URL = "https://github.com/sjk07/condo-cli-1/blob/cluster/template/cluster/registry-configmap.yaml"
+var CLUSTER_CONFIG_MAP_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/registry-configmap.yaml"
 
 // ClusterOptions holds the options specific to cluster creation
 type ClusterOptions struct {
