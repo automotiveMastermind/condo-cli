@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/creack/pty"
 	log "github.com/sirupsen/logrus"
@@ -118,11 +119,46 @@ func init() {
 
 func destroyCluster() {
 	dockerCheck()
+	clusterExistCheck()
 	removeGitServerDockerContainer()
 	removeClusterNodes()
 
 	log.Info("Cluster destroyed")
 
+}
+
+func clusterExistCheck() {
+
+	log.Info("Checking that cluster \"" + clusterOptions.Name + "\" exists...")
+
+	//TO-DO check to see if the cluster exists
+
+	out, err := exec.Command("kind", "get", "clusters").Output()
+
+	if err != nil {
+		log.Fatalf("Unknown kind error  %v", err)
+	}
+
+	outputStr := string(out)
+	outputArray := strings.Fields(outputStr)
+
+	if contains(outputArray, clusterOptions.Name) {
+		log.Info("Cluster detected")
+	} else {
+		log.Fatal("Cluster not found, aborting operation...")
+	}
+
+}
+
+//check if a string equivalent exists in a string array
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+
+	return false
 }
 
 //removes 'git-server' container from the system's instance of docker
@@ -139,7 +175,7 @@ func removeGitServerDockerContainer() {
 	dockerStopErr = dockerStopCmd.Run()
 	if dockerStopErr != nil {
 
-		log.Infof("error at line 109:  %v", dockerStopErr)
+		log.Infof("Docker container \"git-server\" failed to stop:  %v", dockerStopErr)
 	}
 
 	//remove the git-server container
@@ -152,7 +188,7 @@ func removeGitServerDockerContainer() {
 	dockerRemoveErr = dockerRemoveCmd.Run()
 	if dockerRemoveErr != nil {
 
-		log.Infof("error at line 109:  %v", dockerRemoveErr)
+		log.Infof("Docker container \"git-server\" failed to be removed:  %v", dockerRemoveErr)
 	}
 
 	log.Info("git-server removed from docker")
@@ -161,7 +197,7 @@ func removeGitServerDockerContainer() {
 
 //removes cluster nodes using kind. Use '--name [clusterName]' to specify the cluster name if not default
 func removeClusterNodes() {
-	log.Info("Removing cluster \"" + clusterOptions.Name + "\" from docker")
+	log.Info("Removing cluster \"" + clusterOptions.Name + "\" from docker...")
 
 	nameFlag := fmt.Sprintf("--name=%s", clusterOptions.Name)
 
@@ -170,9 +206,8 @@ func removeClusterNodes() {
 	var err error
 	err = cmd.Run()
 	if err != nil {
-		log.Infof("error at line 128:  %v", err)
+		log.Fatalf("Failed to remove cluster:  %v", err)
 	}
-
 	log.Info("cluster \"" + clusterOptions.Name + "\" removed from docker")
 
 }
@@ -278,6 +313,8 @@ func clusterConfigExists(name string) bool {
 
 func createDefaultClusterConfig() {
 	// get defaults from git
+	//we can use github zip feature
+	//[githubProjectAddress]/zipball/[branch]/
 	log.Info("Creating cluster configuration")
 }
 
@@ -332,6 +369,9 @@ func createIngress() {
 
 func createNamespaces() {
 	log.Info("Creating namespaces...")
+	//TO-DO remove
+	log.Info("kubectl apply -f " + clusterRootPath + "/helm/.cluster/namespaces")
+
 	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+"/helm/.cluster/namespaces")
 
 	err := cmd.Run()
