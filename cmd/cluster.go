@@ -25,6 +25,7 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -35,6 +36,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 )
+
+var CLUSTER_CONFIG_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/config.yaml"
+var CLUSTER_GIT_SERVICE_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/git-service.yaml"
+var CLUSTER_CONFIG_MAP_URL = "https://github.com/sjk07/condo-cli-1/blob/cluster/template/cluster/registry-configmap.yaml"
 
 // ClusterOptions holds the options specific to cluster creation
 type ClusterOptions struct {
@@ -67,20 +72,13 @@ var (
 
 	*/
 
-	clusterUseStr   string = "cluster"
-	clusterShortStr string = "A brief description of your command"
-	clusterLongStr  string = `A longer description that spans multiple lines and likely contains examples
-    and usage of using your command. For example:
-    
-    Cobra is a CLI library for Go that empowers applications.
-    This application is a tool to generate the needed files
-    to quickly create a Cobra application.`
+	clusterUseStr string = "cluster"
 
 	// clusterCmd represents the cluster command specific to the create command
 	clusterCreateCmd = &cobra.Command{
 		Use:   clusterUseStr,
-		Short: clusterShortStr,
-		Long:  clusterLongStr,
+		Short: "Creates a kube cluster on your local docker instance",
+		Long:  ``,
 
 		Run: func(cmd *cobra.Command, args []string) {
 
@@ -91,8 +89,8 @@ var (
 	// clusterCmd represents the cluster command specific to the destroy command
 	clusterDestroyCmd = &cobra.Command{
 		Use:   clusterUseStr,
-		Short: clusterShortStr,
-		Long:  clusterLongStr,
+		Short: "Removes a kube cluster on your local docker instance",
+		Long:  ``,
 		Run: func(cmd *cobra.Command, args []string) {
 
 			destroyCluster()
@@ -302,7 +300,7 @@ func clusterConfigExists(name string) bool {
 
 	if _, err := os.Stat(clusterRootPath); os.IsNotExist(err) {
 		log.Infof("Creating new directory for cluster at '%s'\n", clusterRootPath)
-		err := os.Mkdir(clusterRootPath, 0755)
+		err := os.MkdirAll(clusterRootPath, 0755)
 		check(err)
 		return false
 	} else {
@@ -311,11 +309,58 @@ func clusterConfigExists(name string) bool {
 	return true
 }
 
+// get cluster default config files from git
 func createDefaultClusterConfig() {
-	// get defaults from git
-	//we can use github zip feature
-	//[githubProjectAddress]/zipball/[branch]/
+
+	err := os.Mkdir(clusterRootPath+"/cluster", 0755)
+	if err != nil {
+		log.Fatalf("Failed to create directory: %s", err)
+	}
+
+	//clusterRootPath already set by previous method
 	log.Info("Creating cluster configuration")
+
+	//download main config
+	errMainConfig := DownloadFile(clusterRootPath+"/cluster/config.yaml", CLUSTER_CONFIG_URL)
+	if errMainConfig != nil {
+		log.Fatalf("Connot download main configuration file: %s", errMainConfig)
+	}
+
+	//download git service config
+	errGitService := DownloadFile(clusterRootPath+"/cluster/git-service.yaml", CLUSTER_GIT_SERVICE_URL)
+	if errGitService != nil {
+		log.Fatalf("Connot download main configuration file: %s", errGitService)
+	}
+
+	//download registry map config
+	errConfigMap := DownloadFile(clusterRootPath+"/cluster/registry-configmap.yaml", CLUSTER_CONFIG_MAP_URL)
+	if errConfigMap != nil {
+		log.Fatalf("Connot download main configuration file: %s", errConfigMap)
+	}
+
+	log.Info("Cluster configuration downloaded")
+
+}
+
+func DownloadFile(filepath string, url string) error {
+
+	// Get the data
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+	return err
 }
 
 func createCluster() {
