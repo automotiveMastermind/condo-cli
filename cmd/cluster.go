@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	_ "embed"
 	"encoding/pem"
 	"fmt"
 	"html/template"
@@ -37,9 +38,17 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-var CLUSTER_CONFIG_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/config.yaml"
-var CLUSTER_GIT_SERVICE_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/git-service.yaml"
-var CLUSTER_CONFIG_MAP_URL = "https://raw.githubusercontent.com/sjk07/condo-cli-1/cluster/template/cluster/registry-configmap.yaml"
+//go:embed template/cluster/config.yaml
+var CLUSTER_CONFIG_FILE_BYTES []byte
+
+//go:embed template/cluster/git-service.yaml
+var CLUSTER_GIT_SERVICE_FILE_BYTES []byte
+
+//go:embed template/cluster/registry-configmap.yaml
+var CLUSTER_CONFIG_MAP_FILE_BYTES []byte
+
+var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy"
+var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.helm"
 
 // ClusterOptions holds the options specific to cluster creation
 type ClusterOptions struct {
@@ -232,6 +241,8 @@ func cluster() {
 	checkExecDependencies()
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
+		getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy")
+		getGitRepo(HELM_CONFIG_GIT_REPO, "helm")
 	}
 
 	if isClusterRunning() {
@@ -279,6 +290,9 @@ func isClusterRunning() bool {
 	if err != nil {
 		log.Fatalf("Create cluster failed with %s\n", err)
 	}
+	if !(strings.TrimSpace(string(out)) == "No kind clusters found.") {
+		log.Fatalf("Only one cluster instance is allowed. Please \"destroy\" the previous cluster")
+	}
 
 	clusters := bytes.Split(out, []byte("\n"))
 
@@ -304,7 +318,9 @@ func clusterConfigExists(name string) bool {
 		check(err)
 		return false
 	} else {
+
 		log.Infof("Cluster config already exists; will use from directory (%s)", clusterRootPath)
+
 	}
 	return true
 }
@@ -320,25 +336,25 @@ func createDefaultClusterConfig() {
 	//clusterRootPath already set by previous method
 	log.Info("Creating cluster configuration")
 
-	//download main config
-	errMainConfig := DownloadFile(clusterRootPath+"/cluster/config.yaml", CLUSTER_CONFIG_URL)
+	//write main config
+	errMainConfig := ioutil.WriteFile(clusterRootPath+"/cluster/config.yaml", CLUSTER_CONFIG_FILE_BYTES, 0644)
 	if errMainConfig != nil {
-		log.Fatalf("Connot download main configuration file: %s", errMainConfig)
+		log.Fatalf("Embeded file \"config.yaml\" failed to write to directory")
 	}
 
-	//download git service config
-	errGitService := DownloadFile(clusterRootPath+"/cluster/git-service.yaml", CLUSTER_GIT_SERVICE_URL)
+	//write git service config
+	errGitService := ioutil.WriteFile(clusterRootPath+"/cluster/git-service.yaml", CLUSTER_GIT_SERVICE_FILE_BYTES, 0644)
 	if errGitService != nil {
-		log.Fatalf("Connot download main configuration file: %s", errGitService)
+		log.Fatalf("Embeded file \"git-service.yaml\" failed to write to directory")
 	}
 
-	//download registry map config
-	errConfigMap := DownloadFile(clusterRootPath+"/cluster/registry-configmap.yaml", CLUSTER_CONFIG_MAP_URL)
+	//write registry map config
+	errConfigMap := ioutil.WriteFile(clusterRootPath+"/cluster/registry-configmap.yaml", CLUSTER_CONFIG_MAP_FILE_BYTES, 0644)
 	if errConfigMap != nil {
-		log.Fatalf("Connot download main configuration file: %s", errConfigMap)
+		log.Fatalf("Embeded file \"registry-configmap.yaml\" failed to write to directory")
 	}
 
-	log.Info("Cluster configuration downloaded")
+	log.Info("Cluster configurations created")
 
 }
 
@@ -687,6 +703,19 @@ func installFluxHelmOperator() {
 	if err != nil {
 		log.Fatal("failed to start flux helm operator: %v", err)
 	}
+}
+
+func getGitRepo(gitUrl string, folderName string) {
+
+	commandExec := exec.Command("git", "clone", gitUrl, folderName)
+	//clusterRootPath already set by a preceeding method
+	commandExec.Dir = clusterRootPath
+	out, err := commandExec.CombinedOutput()
+	if err != nil {
+		log.Fatalf("Failed to clone auxiliary configurations for \""+folderName+"\". \n Verify Git is installed and Git Credential Manager is configured. (Ref: https://docs.kube.network/tutorials/developer-setup/). \n %s", err)
+	}
+
+	log.Infof("%s", out)
 }
 
 func check(e error) {
