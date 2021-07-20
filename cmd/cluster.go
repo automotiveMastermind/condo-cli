@@ -48,7 +48,10 @@ var CLUSTER_GIT_SERVICE_FILE_BYTES []byte
 var CLUSTER_CONFIG_MAP_FILE_BYTES []byte
 
 var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy"
-var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.helm"
+var DEPLOY_CONFIG_GIT_REPO_BRANCH string = "local"
+
+var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind.visualstudio.com/DefaultCollection/aM/_git/am.devops.helm"
+var HELM_CONFIG_GIT_REPO_BRANCH string = "local"
 
 // ClusterOptions holds the options specific to cluster creation
 type ClusterOptions struct {
@@ -241,8 +244,11 @@ func cluster() {
 	checkExecDependencies()
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
-		getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy")
-		getGitRepo(HELM_CONFIG_GIT_REPO, "helm")
+		getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH)
+		getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH)
+
+		//copy existing sealedSecret || TO BE REMOVED TO REPLACED WITH GENERATED SEALED SECRET
+		copySealedSecret()
 	}
 
 	if isClusterRunning() {
@@ -681,7 +687,7 @@ func installFlux() {
 
 	err := cmd.Run()
 	if err != nil {
-		log.Fatal("failed to start flux: %v", err)
+		log.Fatalf("failed to start flux: %v", err)
 	}
 }
 
@@ -705,9 +711,9 @@ func installFluxHelmOperator() {
 	}
 }
 
-func getGitRepo(gitUrl string, folderName string) {
+func getGitRepo(gitUrl string, folderName string, branchName string) {
 
-	commandExec := exec.Command("git", "clone", gitUrl, folderName)
+	commandExec := exec.Command("git", "clone", "--branch", branchName, gitUrl, folderName)
 	//clusterRootPath already set by a preceeding method
 	commandExec.Dir = clusterRootPath
 	out, err := commandExec.CombinedOutput()
@@ -716,6 +722,28 @@ func getGitRepo(gitUrl string, folderName string) {
 	}
 
 	log.Infof("%s", out)
+}
+
+//TO_DO remove and replace with generated secret
+func copySealedSecret() {
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal("can't find users home directory\n")
+	}
+
+	errMk := os.MkdirAll(clusterRootPath+"/.secrets/", 0755)
+	check(errMk)
+
+	commandExec := exec.Command("cp", home+"/sealed-secrets.yaml", clusterRootPath+"/.secrets/")
+	//clusterRootPath already set by a preceeding method
+
+	copyErr := commandExec.Run()
+	if copyErr != nil {
+
+		log.Fatalf("Sealed Secret Copy error:  %s , home:"+home+", clusterRootPath: "+clusterRootPath, copyErr)
+	}
+
 }
 
 func check(e error) {
