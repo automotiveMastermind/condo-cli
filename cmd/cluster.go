@@ -245,8 +245,7 @@ func cluster() {
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
 		getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH)
-
-		cleanDeployFolder()
+		//cleanDeployFolder()
 		getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH)
 
 		//copy existing sealedSecret || TO BE REMOVED TO REPLACED WITH GENERATED SEALED SECRET
