@@ -47,10 +47,10 @@ var CLUSTER_GIT_SERVICE_FILE_BYTES []byte
 //go:embed template/cluster/registry-configmap.yaml
 var CLUSTER_CONFIG_MAP_FILE_BYTES []byte
 
-var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy"
+var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/Personal/_git/am.devops.deploy.clifford.cheefoon"
 var DEPLOY_CONFIG_GIT_REPO_BRANCH string = "local"
 
-var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind.visualstudio.com/DefaultCollection/aM/_git/am.devops.helm"
+var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/Personal/_git/am.devops.helm.clifford.cheefoon"
 var HELM_CONFIG_GIT_REPO_BRANCH string = "local"
 
 // ClusterOptions holds the options specific to cluster creation
@@ -245,6 +245,8 @@ func cluster() {
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
 		getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH)
+
+		cleanDeployFolder()
 		getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH)
 
 		//copy existing sealedSecret || TO BE REMOVED TO REPLACED WITH GENERATED SEALED SECRET
@@ -743,6 +745,19 @@ func copySealedSecret() {
 
 		log.Fatalf("Sealed Secret Copy error:  %s , home:"+home+", clusterRootPath: "+clusterRootPath, copyErr)
 	}
+
+	permChangeErr := os.Chmod(clusterRootPath+"/.secrets/sealed-secrets.yaml", 0755)
+	check(permChangeErr)
+
+}
+
+func cleanDeployFolder() {
+	removeErr := os.RemoveAll(clusterRootPath + "/deploy/.git/")
+	check(removeErr)
+	renameErr := os.Rename(clusterRootPath+"/deploy/localGit/", clusterRootPath+"/deploy/.git/")
+	check(renameErr)
+	permChangeErr := os.Chmod(clusterRootPath+"/deploy/.git/", 0755)
+	check(permChangeErr)
 
 }
 
