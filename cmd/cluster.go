@@ -244,9 +244,7 @@ func cluster() {
 	checkExecDependencies()
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
-		getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH)
-		//cleanDeployFolder()
-		getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH)
+		createAuxilaryConfig()
 
 		//copy existing sealedSecret || TO BE REMOVED TO REPLACED WITH GENERATED SEALED SECRET
 		copySealedSecret()
@@ -716,13 +714,111 @@ func getGitRepo(gitUrl string, folderName string, branchName string) {
 
 	commandExec := exec.Command("git", "clone", "--branch", branchName, gitUrl, folderName)
 	//clusterRootPath already set by a preceeding method
-	commandExec.Dir = clusterRootPath
+	commandExec.Dir = clusterRootPath + "/tmp"
 	out, err := commandExec.CombinedOutput()
 	if err != nil {
-		log.Fatalf("Failed to clone auxiliary configurations for \""+folderName+"\". \n Verify Git is installed and Git Credential Manager is configured. (Ref: https://docs.kube.network/tutorials/developer-setup/). \n %s", err)
+		log.Fatalf("Failed to clone auxiliary configurations for \""+folderName+"\" into tmp folder. \n Verify Git is installed and Git Credential Manager is configured. (Ref: https://docs.kube.network/tutorials/developer-setup/). \n %s", err)
 	}
 
 	log.Infof("%s", out)
+
+	setUpLocalGitFolder(folderName)
+}
+
+func setUpLocalGitFolder(folderName string) {
+
+	err := os.MkdirAll(clusterRootPath+"/"+folderName, 0755)
+	check(err)
+
+	commandExec := exec.Command("git", "init")
+	//clusterRootPath already set by a preceeding method
+	commandExec.Dir = clusterRootPath + "/" + folderName
+	errGitInit := commandExec.Run()
+	if errGitInit != nil {
+		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitInit)
+	}
+
+	commandSwitchBranch := exec.Command("git", "switch", "-c", clusterOptions.Name)
+	//clusterRootPath already set by a preceeding method
+	commandSwitchBranch.Dir = clusterRootPath + "/" + folderName
+	errSwitchBranch := commandSwitchBranch.Run()
+	if errSwitchBranch != nil {
+		log.Fatalf("Failed to switch branch of local git repo "+folderName+". %s", errSwitchBranch)
+	}
+
+	moveCloneIntoLocalRepo(folderName)
+
+	commandGitAdd := exec.Command("git", "add", "-A")
+	//clusterRootPath already set by a preceeding method
+	commandGitAdd.Dir = clusterRootPath + "/" + folderName
+	errGitAdd := commandGitAdd.Run()
+	if errGitAdd != nil {
+		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitAdd)
+	}
+
+	commandGitCommit := exec.Command("git", "commit", "-m", "\"INIT COMMIT\"")
+	//clusterRootPath already set by a preceeding method
+	commandGitCommit.Dir = clusterRootPath + "/" + folderName
+	errGitCommit := commandGitCommit.Run()
+	if errGitCommit != nil {
+		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitCommit)
+	}
+
+}
+
+func cleanTmp() {
+	commandRmTmp := exec.Command("rm", "-rf", "tmp")
+	//clusterRootPath already set by a preceeding method
+	commandRmTmp.Dir = clusterRootPath
+	errRmTmp := commandRmTmp.Run()
+	if errRmTmp != nil {
+		log.Fatalf("Failed to remove tmp folder. %s", errRmTmp)
+	}
+
+}
+
+func createTmp() {
+	err := os.MkdirAll(clusterRootPath+"/tmp", 0755)
+	check(err)
+}
+
+func createAuxilaryConfig() {
+	createTmp()
+	getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH)
+	getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH)
+	cleanTmp()
+}
+
+func moveCloneIntoLocalRepo(folderName string) {
+	//remove .git folder
+
+	commandRmGit := exec.Command("rm", "-rf", ".git")
+	//clusterRootPath already set by a preceeding method
+	commandRmGit.Dir = clusterRootPath + "/tmp/" + folderName
+	errRmGit := commandRmGit.Run()
+	if errRmGit != nil {
+		log.Fatalf("Error removing git folder at /tmp/"+folderName+". %s", errRmGit)
+	}
+
+	//exec.command does not support the wildcard, we invoke a shell first to take care of it
+	commandMv := exec.Command("/bin/sh", "-c", "mv "+clusterRootPath+"/tmp/"+folderName+"/* "+clusterRootPath+"/"+folderName)
+
+	out, errMv := commandMv.CombinedOutput()
+
+	if errMv != nil {
+		log.Infof("%s||%s", out, commandMv.String())
+		log.Fatalf("Failed to move files. %v", errMv)
+	}
+
+	commandMvHidden := exec.Command("/bin/sh", "-c", "mv "+clusterRootPath+"/tmp/"+folderName+"/.* "+clusterRootPath+"/"+folderName)
+
+	out, errMvHidden := commandMvHidden.CombinedOutput()
+
+	if errMv != nil {
+		log.Infof("%s||%s", out, commandMvHidden.String())
+		log.Fatalf("Failed to move hidden files. %v", errMvHidden)
+	}
+
 }
 
 //TO_DO remove and replace with generated secret
@@ -746,16 +842,6 @@ func copySealedSecret() {
 	}
 
 	permChangeErr := os.Chmod(clusterRootPath+"/.secrets/sealed-secrets.yaml", 0755)
-	check(permChangeErr)
-
-}
-
-func cleanDeployFolder() {
-	removeErr := os.RemoveAll(clusterRootPath + "/deploy/.git/")
-	check(removeErr)
-	renameErr := os.Rename(clusterRootPath+"/deploy/localGit/", clusterRootPath+"/deploy/.git/")
-	check(renameErr)
-	permChangeErr := os.Chmod(clusterRootPath+"/deploy/.git/", 0755)
 	check(permChangeErr)
 
 }
