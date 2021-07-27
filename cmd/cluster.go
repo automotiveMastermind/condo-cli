@@ -47,10 +47,10 @@ var CLUSTER_GIT_SERVICE_FILE_BYTES []byte
 //go:embed template/cluster/registry-configmap.yaml
 var CLUSTER_CONFIG_MAP_FILE_BYTES []byte
 
-var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/Personal/_git/am.devops.deploy.clifford.cheefoon"
+var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy"
 var DEPLOY_CONFIG_GIT_REPO_BRANCH string = "local"
 
-var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/Personal/_git/am.devops.helm.clifford.cheefoon"
+var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.helm"
 var HELM_CONFIG_GIT_REPO_BRANCH string = "local"
 
 // ClusterOptions holds the options specific to cluster creation
@@ -792,6 +792,19 @@ func createAuxilaryConfig() {
 func moveCloneIntoLocalRepo(folderName string) {
 	//remove .git folder
 
+	if runtime.GOOS == "windows" {
+		//TO-DO windows implementation
+		log.Fatalf("Detected OS not supported - Windows")
+
+	} else if runtime.GOOS == "darwin" {
+		moveCloneIntoLocalRepoMac(folderName)
+	} else {
+		log.Fatalf("Detected OS not supported")
+	}
+
+}
+
+func moveCloneIntoLocalRepoMac(folderName string) {
 	commandRmGit := exec.Command("rm", "-rf", ".git")
 	//clusterRootPath already set by a preceeding method
 	commandRmGit.Dir = clusterRootPath + "/tmp/" + folderName
@@ -818,7 +831,6 @@ func moveCloneIntoLocalRepo(folderName string) {
 		log.Infof("%s||%s", out, commandMvHidden.String())
 		log.Fatalf("Failed to move hidden files. %v", errMvHidden)
 	}
-
 }
 
 //TO_DO remove and replace with generated secret
