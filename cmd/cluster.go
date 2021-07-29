@@ -26,17 +26,20 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"path/filepath"
 
 	"github.com/creack/pty"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 )
+
+var FPS string = string(filepath.Separator)
 
 //go:embed template/cluster/config.yaml
 var CLUSTER_CONFIG_FILE_BYTES []byte
@@ -46,12 +49,6 @@ var CLUSTER_GIT_SERVICE_FILE_BYTES []byte
 
 //go:embed template/cluster/registry-configmap.yaml
 var CLUSTER_CONFIG_MAP_FILE_BYTES []byte
-
-var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy"
-var DEPLOY_CONFIG_GIT_REPO_BRANCH string = "local"
-
-var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.helm"
-var HELM_CONFIG_GIT_REPO_BRANCH string = "local"
 
 // ClusterOptions holds the options specific to cluster creation
 type ClusterOptions struct {
@@ -131,6 +128,7 @@ func destroyCluster() {
 	dockerCheck()
 	clusterExistCheck()
 	removeGitServerDockerContainer()
+	removeDockerRegistryDockerContainer()
 	removeClusterNodes()
 
 	log.Info("Cluster destroyed")
@@ -222,32 +220,23 @@ func removeClusterNodes() {
 
 }
 
-//check if docker engine is running
-func dockerCheck() {
-
-	log.Info("Looking for docker instance...")
-	cmd := exec.Command("docker", "ps")
-
-	var err error
-	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("No docker instance found:  %v", err)
-	}
-
-	log.Info("Docker instance found")
-
-}
-
+//entry point for "create cluster"
 func cluster() {
 	log.Info("Hello! Welcome to condo create cluster!")
 	dockerCheck()
 	checkExecDependencies()
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
-		createAuxilaryConfig()
+		CreateAuxilaryConfig(clusterRootPath, clusterOptions.Name)
 
 		//copy existing sealedSecret || TO BE REMOVED TO REPLACED WITH GENERATED SEALED SECRET
 		copySealedSecret()
+	} else if !clusterAuxiliaryConfigExists(clusterOptions.Name, "deploy") {
+		CreateAuxilaryConfigDeployOnly(clusterRootPath, clusterOptions.Name)
+
+	} else if !clusterAuxiliaryConfigExists(clusterOptions.Name, "helm") {
+		CreateAuxilaryConfigHelmOnly(clusterRootPath, clusterOptions.Name)
+
 	}
 
 	if isClusterRunning() {
@@ -315,7 +304,7 @@ func clusterConfigExists(name string) bool {
 		log.Fatal("can't find users home directory\n")
 	}
 
-	clusterRootPath = fmt.Sprintf(home+"/.am/clusters/%s", name)
+	clusterRootPath = fmt.Sprintf(home+FPS+".am"+FPS+"clusters"+FPS+"%s", name)
 
 	if _, err := os.Stat(clusterRootPath); os.IsNotExist(err) {
 		log.Infof("Creating new directory for cluster at '%s'\n", clusterRootPath)
@@ -330,10 +319,25 @@ func clusterConfigExists(name string) bool {
 	return true
 }
 
-// get cluster default config files from git
+func clusterAuxiliaryConfigExists(name string, folder string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal("can't find users home directory\n")
+	}
+
+	clusterRootPath = fmt.Sprintf(home+FPS+".am"+FPS+"clusters"+FPS+"%s", name)
+
+	if _, err := os.Stat(clusterRootPath + FPS + folder); os.IsNotExist(err) {
+
+		return false
+	}
+	return true
+}
+
+// create cluster default config files from internal binary
 func createDefaultClusterConfig() {
 
-	err := os.Mkdir(clusterRootPath+"/cluster", 0755)
+	err := os.Mkdir(clusterRootPath+FPS+"cluster", 0755)
 	if err != nil {
 		log.Fatalf("Failed to create directory: %s", err)
 	}
@@ -342,46 +346,25 @@ func createDefaultClusterConfig() {
 	log.Info("Creating cluster configuration")
 
 	//write main config
-	errMainConfig := ioutil.WriteFile(clusterRootPath+"/cluster/config.yaml", CLUSTER_CONFIG_FILE_BYTES, 0644)
+	errMainConfig := ioutil.WriteFile(clusterRootPath+FPS+"cluster"+FPS+"config.yaml", CLUSTER_CONFIG_FILE_BYTES, 0644)
 	if errMainConfig != nil {
 		log.Fatalf("Embeded file \"config.yaml\" failed to write to directory")
 	}
 
 	//write git service config
-	errGitService := ioutil.WriteFile(clusterRootPath+"/cluster/git-service.yaml", CLUSTER_GIT_SERVICE_FILE_BYTES, 0644)
+	errGitService := ioutil.WriteFile(clusterRootPath+FPS+"cluster"+FPS+"git-service.yaml", CLUSTER_GIT_SERVICE_FILE_BYTES, 0644)
 	if errGitService != nil {
 		log.Fatalf("Embeded file \"git-service.yaml\" failed to write to directory")
 	}
 
 	//write registry map config
-	errConfigMap := ioutil.WriteFile(clusterRootPath+"/cluster/registry-configmap.yaml", CLUSTER_CONFIG_MAP_FILE_BYTES, 0644)
+	errConfigMap := ioutil.WriteFile(clusterRootPath+FPS+"cluster"+FPS+"registry-configmap.yaml", CLUSTER_CONFIG_MAP_FILE_BYTES, 0644)
 	if errConfigMap != nil {
 		log.Fatalf("Embeded file \"registry-configmap.yaml\" failed to write to directory")
 	}
 
 	log.Info("Cluster configurations created")
 
-}
-
-func DownloadFile(filepath string, url string) error {
-
-	// Get the data
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Create the file
-	out, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	// Write the body to file
-	_, err = io.Copy(out, resp.Body)
-	return err
 }
 
 func createCluster() {
@@ -436,9 +419,9 @@ func createIngress() {
 func createNamespaces() {
 	log.Info("Creating namespaces...")
 	//TO-DO remove
-	log.Info("kubectl apply -f " + clusterRootPath + "/helm/.cluster/namespaces")
+	log.Info("kubectl apply -f " + clusterRootPath + FPS + "helm" + FPS + ".cluster" + FPS + "namespaces")
 
-	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+"/helm/.cluster/namespaces")
+	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+FPS+"helm"+FPS+".cluster"+FPS+"namespaces")
 
 	err := cmd.Run()
 	if err != nil {
@@ -448,7 +431,7 @@ func createNamespaces() {
 
 func createPolicies() {
 	log.Info("Creating policies...")
-	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+"/helm/.cluster")
+	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+FPS+"helm"+FPS+".cluster")
 
 	err := cmd.Run()
 	if err != nil {
@@ -457,9 +440,9 @@ func createPolicies() {
 }
 
 func createRSAKey() {
-	sshKeyPath := clusterRootPath + "/.ssh"
-	privateKeyPath := sshKeyPath + "/identity"
-	publicKeyPath := sshKeyPath + "/identity.pub"
+	sshKeyPath := clusterRootPath + FPS + ".ssh"
+	privateKeyPath := sshKeyPath + FPS + "identity"
+	publicKeyPath := sshKeyPath + FPS + "identity.pub"
 
 	log.Debugf("ssh-path: %s \nprivate-key: %s \npublic-key: %s \n", sshKeyPath, privateKeyPath, publicKeyPath)
 
@@ -592,21 +575,17 @@ func configGitInCluster() {
 
 }
 
-func installDockerRegistry() {
-	log.Info("Starting docker registry...")
-}
-
 func installSealedSecrets() {
 	log.Info("Starting sealed secrets...")
 	cmd := exec.Command(
 		"helm",
 		"upgrade",
 		"sealed-secrets-controller",
-		clusterRootPath+"/helm/sealed-secrets",
+		clusterRootPath+FPS+"helm"+FPS+"sealed-secrets",
 		"--install",
 		"--wait",
 		"--namespace=kube-system",
-		"--values="+clusterRootPath+"/helm/.values/sealed-secrets.yaml",
+		"--values="+clusterRootPath+FPS+"helm"+FPS+".values"+FPS+"sealed-secrets.yaml",
 	)
 
 	err := cmd.Run()
@@ -615,7 +594,7 @@ func installSealedSecrets() {
 	}
 
 	// reload secret if exists
-	secretsPath := clusterRootPath + "/.secrets/sealed-secrets.yaml"
+	secretsPath := clusterRootPath + FPS + ".secrets" + FPS + "sealed-secrets.yaml"
 	if _, err = os.Stat(secretsPath); os.IsExist(err) {
 		secret, err := ioutil.ReadFile(secretsPath)
 		check(err)
@@ -659,7 +638,7 @@ func installFluxSecrets() {
 		"secret",
 		"generic",
 		"flux-git-deploy",
-		"--from-file="+clusterRootPath+"/.ssh/identity",
+		"--from-file="+clusterRootPath+FPS+".ssh"+FPS+"identity",
 		"--namespace=weave",
 	)
 
@@ -679,7 +658,7 @@ func installFlux() {
 		"--install",
 		"--wait",
 		"--namespace=weave",
-		"--values="+clusterRootPath+"/helm/.values/flux.yaml",
+		"--values="+clusterRootPath+FPS+"helm"+FPS+".values"+FPS+"flux.yaml",
 		"--set=git.branch="+clusterOptions.Name,
 		"--set=git.label=flux-"+clusterOptions.Name,
 	)
@@ -696,140 +675,17 @@ func installFluxHelmOperator() {
 		"helm",
 		"upgrade",
 		"flux-helm-operator",
-		clusterRootPath+"/helm/fluxcd/helm-operator",
+		clusterRootPath+FPS+"helm"+FPS+"fluxcd"+FPS+"helm-operator",
 		"--install",
 		"--wait",
 		"--namespace=weave",
-		"--values="+clusterRootPath+"/helm/.values/helm-operator.yaml",
+		"--values="+clusterRootPath+FPS+"helm"+FPS+".values"+FPS+"helm-operator.yaml",
 		"--set=helm.versions=v3",
 	)
 
 	err := cmd.Run()
 	if err != nil {
 		log.Fatal("failed to start flux helm operator: %v", err)
-	}
-}
-
-func getGitRepo(gitUrl string, folderName string, branchName string) {
-
-	commandExec := exec.Command("git", "clone", "--branch", branchName, gitUrl, folderName)
-	//clusterRootPath already set by a preceeding method
-	commandExec.Dir = clusterRootPath + "/tmp"
-	out, err := commandExec.CombinedOutput()
-	if err != nil {
-		log.Fatalf("Failed to clone auxiliary configurations for \""+folderName+"\" into tmp folder. \n Verify Git is installed and Git Credential Manager is configured. (Ref: https://docs.kube.network/tutorials/developer-setup/). \n %s", err)
-	}
-
-	log.Infof("%s", out)
-
-	setUpLocalGitFolder(folderName)
-}
-
-func setUpLocalGitFolder(folderName string) {
-
-	err := os.MkdirAll(clusterRootPath+"/"+folderName, 0755)
-	check(err)
-
-	commandExec := exec.Command("git", "init")
-	//clusterRootPath already set by a preceeding method
-	commandExec.Dir = clusterRootPath + "/" + folderName
-	errGitInit := commandExec.Run()
-	if errGitInit != nil {
-		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitInit)
-	}
-
-	commandSwitchBranch := exec.Command("git", "switch", "-c", clusterOptions.Name)
-	//clusterRootPath already set by a preceeding method
-	commandSwitchBranch.Dir = clusterRootPath + "/" + folderName
-	errSwitchBranch := commandSwitchBranch.Run()
-	if errSwitchBranch != nil {
-		log.Fatalf("Failed to switch branch of local git repo "+folderName+". %s", errSwitchBranch)
-	}
-
-	moveCloneIntoLocalRepo(folderName)
-
-	commandGitAdd := exec.Command("git", "add", "-A")
-	//clusterRootPath already set by a preceeding method
-	commandGitAdd.Dir = clusterRootPath + "/" + folderName
-	errGitAdd := commandGitAdd.Run()
-	if errGitAdd != nil {
-		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitAdd)
-	}
-
-	commandGitCommit := exec.Command("git", "commit", "-m", "\"INIT COMMIT\"")
-	//clusterRootPath already set by a preceeding method
-	commandGitCommit.Dir = clusterRootPath + "/" + folderName
-	errGitCommit := commandGitCommit.Run()
-	if errGitCommit != nil {
-		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitCommit)
-	}
-
-}
-
-func cleanTmp() {
-	commandRmTmp := exec.Command("rm", "-rf", "tmp")
-	//clusterRootPath already set by a preceeding method
-	commandRmTmp.Dir = clusterRootPath
-	errRmTmp := commandRmTmp.Run()
-	if errRmTmp != nil {
-		log.Fatalf("Failed to remove tmp folder. %s", errRmTmp)
-	}
-
-}
-
-func createTmp() {
-	err := os.MkdirAll(clusterRootPath+"/tmp", 0755)
-	check(err)
-}
-
-func createAuxilaryConfig() {
-	createTmp()
-	getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH)
-	getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH)
-	cleanTmp()
-}
-
-func moveCloneIntoLocalRepo(folderName string) {
-	//remove .git folder
-
-	if runtime.GOOS == "windows" {
-		//TO-DO windows implementation
-		log.Fatalf("Detected OS not supported - Windows")
-
-	} else if runtime.GOOS == "darwin" {
-		moveCloneIntoLocalRepoMac(folderName)
-	} else {
-		log.Fatalf("Detected OS not supported")
-	}
-
-}
-
-func moveCloneIntoLocalRepoMac(folderName string) {
-	commandRmGit := exec.Command("rm", "-rf", ".git")
-	//clusterRootPath already set by a preceeding method
-	commandRmGit.Dir = clusterRootPath + "/tmp/" + folderName
-	errRmGit := commandRmGit.Run()
-	if errRmGit != nil {
-		log.Fatalf("Error removing git folder at /tmp/"+folderName+". %s", errRmGit)
-	}
-
-	//exec.command does not support the wildcard, we invoke a shell first to take care of it
-	commandMv := exec.Command("/bin/sh", "-c", "mv "+clusterRootPath+"/tmp/"+folderName+"/* "+clusterRootPath+"/"+folderName)
-
-	out, errMv := commandMv.CombinedOutput()
-
-	if errMv != nil {
-		log.Infof("%s||%s", out, commandMv.String())
-		log.Fatalf("Failed to move files. %v", errMv)
-	}
-
-	commandMvHidden := exec.Command("/bin/sh", "-c", "mv "+clusterRootPath+"/tmp/"+folderName+"/.* "+clusterRootPath+"/"+folderName)
-
-	out, errMvHidden := commandMvHidden.CombinedOutput()
-
-	if errMv != nil {
-		log.Infof("%s||%s", out, commandMvHidden.String())
-		log.Fatalf("Failed to move hidden files. %v", errMvHidden)
 	}
 }
 
@@ -841,10 +697,10 @@ func copySealedSecret() {
 		log.Fatal("can't find users home directory\n")
 	}
 
-	errMk := os.MkdirAll(clusterRootPath+"/.secrets/", 0755)
+	errMk := os.MkdirAll(clusterRootPath+FPS+".secrets"+FPS, 0755)
 	check(errMk)
 
-	commandExec := exec.Command("cp", home+"/sealed-secrets.yaml", clusterRootPath+"/.secrets/")
+	commandExec := exec.Command("cp", home+FPS+"sealed-secrets.yaml", clusterRootPath+FPS+".secrets"+FPS)
 	//clusterRootPath already set by a preceeding method
 
 	copyErr := commandExec.Run()
@@ -853,8 +709,24 @@ func copySealedSecret() {
 		log.Fatalf("Sealed Secret Copy error:  %s , home:"+home+", clusterRootPath: "+clusterRootPath, copyErr)
 	}
 
-	permChangeErr := os.Chmod(clusterRootPath+"/.secrets/sealed-secrets.yaml", 0755)
+	permChangeErr := os.Chmod(clusterRootPath+FPS+".secrets"+FPS+"sealed-secrets.yaml", 0755)
 	check(permChangeErr)
+
+}
+
+//check if docker engine is running
+func dockerCheck() {
+
+	log.Info("Looking for docker instance...")
+	cmd := exec.Command("docker", "ps")
+
+	var err error
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("No docker instance found:  %v", err)
+	}
+
+	log.Info("Docker instance found")
 
 }
 
