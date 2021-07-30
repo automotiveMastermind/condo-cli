@@ -1,49 +1,87 @@
-package cmd
+package services
 
 import (
-	_ "embed"
+	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 )
 
-var DEPLOY_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy"
-var DEPLOY_CONFIG_GIT_REPO_BRANCH string = "local"
+//gets the native OS' filepath separator character, stores it in 'FPS' to use when defining file paths
+var FPS string = string(filepath.Separator)
 
-var HELM_CONFIG_GIT_REPO string = "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.helm"
-var HELM_CONFIG_GIT_REPO_BRANCH string = "local"
+//region public functions
+func CreateAuxilaryConfig(clusterRootPath string, clusterName string) {
+	configuration := loadConfig()
+	getGitRepo(configuration.DEPLOY_CONFIG_GIT_REPO, "deploy", configuration.DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
+	getGitRepo(configuration.HELM_CONFIG_GIT_REPO, "helm", configuration.HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
+}
 
-//var FPS string = string(filepath.Separator)
+func CreateAuxilaryConfigDeployOnly(clusterRootPath string, clusterName string) {
+	configuration := loadConfig()
+	getGitRepo(configuration.DEPLOY_CONFIG_GIT_REPO, "deploy", configuration.DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
+}
+
+func CreateAuxilaryConfigHelmOnly(clusterRootPath string, clusterName string) {
+	configuration := loadConfig()
+	getGitRepo(configuration.HELM_CONFIG_GIT_REPO, "helm", configuration.HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
+}
+
+//endregion public functions
+
+type Configuration struct {
+	DEPLOY_CONFIG_GIT_REPO        string
+	DEPLOY_CONFIG_GIT_REPO_BRANCH string
+
+	HELM_CONFIG_GIT_REPO        string
+	HELM_CONFIG_GIT_REPO_BRANCH string
+}
+
+func loadConfig() Configuration {
+	file, _ := os.Open("config.json")
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	configuration := Configuration{}
+	err := decoder.Decode(&configuration)
+	if err != nil {
+		log.Fatalf("Failed to laod config.json. %s", err)
+	}
+
+	return configuration
+}
 
 func setUpLocalGitFolder(folderName string, clusterRootPath string, clusterName string) {
 
 	moveCloneIntoLocalRepo(folderName, clusterRootPath)
 
+	workingFolderUri := clusterRootPath + FPS + folderName
+
 	commandExec := exec.Command("git", "init")
 
-	commandExec.Dir = clusterRootPath + FPS + folderName
+	commandExec.Dir = workingFolderUri
 	errGitInit := commandExec.Run()
 	if errGitInit != nil {
 		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitInit)
 	}
 
 	commandSwitchBranch := exec.Command("git", "switch", "-c", clusterName)
-	commandSwitchBranch.Dir = clusterRootPath + FPS + folderName
+	commandSwitchBranch.Dir = workingFolderUri
 	errSwitchBranch := commandSwitchBranch.Run()
 	if errSwitchBranch != nil {
 		log.Fatalf("Failed to switch branch of local git repo "+folderName+". %s", errSwitchBranch)
 	}
 
 	commandGitAdd := exec.Command("git", "add", "-A")
-	commandGitAdd.Dir = clusterRootPath + FPS + folderName
+	commandGitAdd.Dir = workingFolderUri
 	errGitAdd := commandGitAdd.Run()
 	if errGitAdd != nil {
 		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitAdd)
 	}
 
 	commandGitCommit := exec.Command("git", "commit", "-m", "\"INIT COMMIT\"")
-	commandGitCommit.Dir = clusterRootPath + FPS + folderName
+	commandGitCommit.Dir = workingFolderUri
 	errGitCommit := commandGitCommit.Run()
 	if errGitCommit != nil {
 		log.Fatalf("Failed to initialize local git repo "+folderName+". %s", errGitCommit)
@@ -51,44 +89,9 @@ func setUpLocalGitFolder(folderName string, clusterRootPath string, clusterName 
 
 }
 
-func cleanTmp(clusterRootPath string) {
-	commandRmTmp := exec.Command("rm", "-rf", "tmp")
-	commandRmTmp.Dir = clusterRootPath
-	errRmTmp := commandRmTmp.Run()
-	if errRmTmp != nil {
-		log.Fatalf("Failed to remove tmp folder. %s", errRmTmp)
-	}
-
-}
-
-func createTmp(clusterRootPath string) {
-	err := os.MkdirAll(clusterRootPath+"/tmp", 0755)
-	check(err)
-}
-
-func CreateAuxilaryConfig(clusterRootPath string, clusterName string) {
-	createTmp(clusterRootPath)
-	getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-	getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-	cleanTmp(clusterRootPath)
-}
-
-func CreateAuxilaryConfigDeployOnly(clusterRootPath string, clusterName string) {
-	createTmp(clusterRootPath)
-	getGitRepo(DEPLOY_CONFIG_GIT_REPO, "deploy", DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-	cleanTmp(clusterRootPath)
-}
-
-func CreateAuxilaryConfigHelmOnly(clusterRootPath string, clusterName string) {
-	createTmp(clusterRootPath)
-	getGitRepo(HELM_CONFIG_GIT_REPO, "helm", HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-	cleanTmp(clusterRootPath)
-}
-
 func moveCloneIntoLocalRepo(folderName string, clusterRootPath string) {
 
 	commandRmGit := exec.Command("rm", "-rf", ".git")
-	//clusterRootPath already set by a preceeding method
 	commandRmGit.Dir = clusterRootPath + FPS + "tmp" + FPS + folderName
 	errRmGit := commandRmGit.Run()
 	if errRmGit != nil {
@@ -105,8 +108,10 @@ func moveCloneIntoLocalRepo(folderName string, clusterRootPath string) {
 
 func getGitRepo(gitUrl string, folderName string, branchName string, clusterRootPath string, clusterName string) {
 
+	err := os.MkdirAll(clusterRootPath+"/tmp", 0755)
+	check(err)
+
 	commandExec := exec.Command("git", "clone", "--branch", branchName, gitUrl, folderName)
-	//clusterRootPath already set by a preceeding method
 	commandExec.Dir = clusterRootPath + "/tmp"
 	out, err := commandExec.CombinedOutput()
 	if err != nil {
@@ -116,4 +121,15 @@ func getGitRepo(gitUrl string, folderName string, branchName string, clusterRoot
 	log.Infof("%s", out)
 
 	setUpLocalGitFolder(folderName, clusterRootPath, clusterName)
+
+	errRmTmp := os.RemoveAll(clusterRootPath + FPS + "tmp")
+	if errRmTmp != nil {
+		log.Fatalf("Failed to remove tmp folder. %s", errRmTmp)
+	}
+}
+
+func check(e error) {
+	if e != nil {
+		log.Fatalf("%v", e)
+	}
 }

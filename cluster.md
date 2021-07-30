@@ -100,9 +100,55 @@ git commit -m "modified podinfo deployment"
 
 ---
 
+# Deploy Docker Images
+The cluster pulls docker images defined in your deployment/helmRelease from a local Image Registry Instance. An example helmRelease that pulls the image from the local Image Registry Instance is shown below, note the value of `repository` and `tag`.
 
- 
+```sh
+apiVersion: helm.fluxcd.io/v1
+kind: HelmRelease
+metadata:
+  name: demo-kebab
+  namespace: stg
+  annotations:
+    fluxcd.io/automated: "true"
+    fluxcd.io/tag.chart-image: semver:*
+spec:
+  chart:
+    git: git@git.default:/git-server/repos/helm
+    ref: local
+    path: am-micro-service
+  releaseName: demo-kebab
+  helmVersion: v3
+  values:
+    environment: local
+    image:
+      repository: localhost:5000/kebab-demo
+      tag: 1.20.59
+    privileged: true
+    repository:
+      name: kebab
+    ingress:
+      external:
+        enabled: true
+
+```
+### Viewing the local Image Registry Instance catalog
+
+1. Verify that the `docker-image-reg` docker container is running
+2. access [http://localhost:5000/v2/_catalog](http://localhost:5000/v2/_catalog)
 
 
-
-
+### Pushing Images to the local Image Registry Instance
+1. Verify that the `docker-image-reg` docker container is running
+2. Verify docker can access your image. Use command:
+```sh
+docker images
+```
+3. Tag the image for the Image Registry Instance. use the command:
+```sh
+docker tag <imageID> localhost:5000/<imageName>:<taggedVersion>
+```
+4. Push the image to the Image Registry Instance. use the command:
+```sh
+docker push localhost:5000/<imageName>:<taggedVersion>
+```

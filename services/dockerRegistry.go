@@ -1,4 +1,4 @@
-package cmd
+package services
 
 import (
 	"os/exec"
@@ -8,7 +8,38 @@ import (
 
 var DOCKER_REGISTRY_NAME string = "docker-image-reg"
 
-func installDockerRegistry() {
+func checkDockerRegistryRunning() bool {
+
+	cmd := exec.Command(
+		"docker",
+		"container",
+		"inspect",
+		"-f",
+		"'{{.State.Running}}'",
+		DOCKER_REGISTRY_NAME,
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Infof("%s", err)
+		return false
+	}
+
+	if string(out) == "true" {
+		return true
+	} else {
+		return false
+	}
+
+}
+
+func InstallDockerRegistry() {
+
+	if checkDockerRegistryRunning() {
+		log.Info(DOCKER_REGISTRY_NAME + " is already running, skipping " + DOCKER_REGISTRY_NAME + " creation.")
+		return
+	}
+
 	log.Info("Starting " + DOCKER_REGISTRY_NAME)
 	cmd := exec.Command(
 		"docker",
@@ -24,7 +55,8 @@ func installDockerRegistry() {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Infof("%s", out)
-		log.Fatalf("failed to start "+DOCKER_REGISTRY_NAME+": %v", err)
+		log.Infof("failed to start "+DOCKER_REGISTRY_NAME+": %v", err)
+
 	}
 
 	// connect to kind network
@@ -39,13 +71,13 @@ func installDockerRegistry() {
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		log.Infof("%s", out)
-		log.Fatalf("failed to add "+DOCKER_REGISTRY_NAME+"to the kind network: %v", err)
+		log.Fatalf("failed to add "+DOCKER_REGISTRY_NAME+" to the kind network: %v", err)
 	}
 	log.Info("attach " + DOCKER_REGISTRY_NAME + "to kind network")
 
 }
 
-func removeDockerRegistryDockerContainer() {
+func RemoveDockerRegistryDockerContainer() {
 	log.Info("Removing container " + DOCKER_REGISTRY_NAME + " from docker")
 
 	//stop the git-server container
