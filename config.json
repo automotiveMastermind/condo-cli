@@ -1,0 +1,7 @@
+{
+  "DEPLOY_CONFIG_GIT_REPO": "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.deploy",
+  "DEPLOY_CONFIG_GIT_REPO_BRANCH": "local", 
+
+  "HELM_CONFIG_GIT_REPO": "https://automotivemastermind@dev.azure.com/automotivemastermind/aM/_git/am.devops.helm",
+  "HELM_CONFIG_GIT_REPO_BRANCH": "local"
+}

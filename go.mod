@@ -18,7 +18,9 @@ require (
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/sirupsen/logrus v1.8.0
 	github.com/spf13/cobra v1.1.3
-	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
-	golang.org/x/sys v0.0.0-20210301091718-77cc2087c03b // indirect
+	github.com/stretchr/testify v1.7.0 // indirect
+	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b
+	golang.org/x/net v0.0.0-20210326060303-6b1517762897 // indirect
+	golang.org/x/sys v0.0.0-20210502180810-71e4cd670f79 // indirect
 	gotest.tools/v3 v3.0.3 // indirect
 )

@@ -17,3 +17,11 @@ then run!
 ```
 condo run
 ```
+
+
+## Cluster dependencies: 
+kind
+git
+kubectl
+helm
+docker
