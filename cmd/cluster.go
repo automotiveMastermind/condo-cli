@@ -116,6 +116,7 @@ func destroyCluster() {
 	clusterExistCheck()
 	removeGitServerDockerContainer()
 	services.RemoveDockerRegistryDockerContainer()
+	services.RemoveMongoDockerContainer()
 	removeClusterNodes()
 
 	log.Info("Cluster destroyed")
@@ -239,6 +240,7 @@ func cluster() {
 	installGitServer()
 	configGitInCluster()
 	services.InstallDockerRegistry()
+	services.InstallMongo()
 	installSealedSecrets()
 	installFluxSecrets()
 	installFlux()
