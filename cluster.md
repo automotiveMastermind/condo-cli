@@ -152,3 +152,16 @@ docker tag <imageID> localhost:5000/<imageName>:<taggedVersion>
 ```sh
 docker push localhost:5000/<imageName>:<taggedVersion>
 ```
+
+# Using Mongo
+The **condo_cli cluster** tool comes with a mongo instance that is run in docker (named `mongo-container`) and is accessible within the kubernetes cluster.
+
+### Connect locally
+To access the mongo instance from your computer, connect to `localhost:27017` using any mongoDB tool like Robo 3T.
+
+### Connect through an application within kubernetes
+From within the cluster, applications can access the mongo instance by using the connection string below:
+
+```sh
+"mongodb://mongo-container:27017/"
+```
