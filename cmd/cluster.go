@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -11,6 +12,7 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -18,24 +20,17 @@ import (
 
 	"path/filepath"
 
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/automotiveMastermind/condo-cli/services"
 	"github.com/creack/pty"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
+	"k8s.io/client-go/kubernetes"
 )
-
-//gets the native OS' filepath separator character, stores it in 'FPS' to use when defining file paths
-var FPS string = string(filepath.Separator)
-
-//go:embed template/cluster/config.yaml
-var CLUSTER_CONFIG_FILE_BYTES []byte
-
-//go:embed template/cluster/git-service.yaml
-var CLUSTER_GIT_SERVICE_FILE_BYTES []byte
-
-//go:embed template/cluster/registry-configmap.yaml
-var CLUSTER_CONFIG_MAP_FILE_BYTES []byte
 
 // ClusterOptions holds the options specific to cluster creation
 type ClusterOptions struct {
@@ -43,6 +38,8 @@ type ClusterOptions struct {
 	Image   string
 	Version string
 }
+
+const clusterUseStr string = "cluster"
 
 var (
 	// cluster options defaults
@@ -52,6 +49,19 @@ var (
 		Image:   "kindest/node",
 	}
 
+	//gets the native OS' filepath separator character, stores it in 'FPS' to use when defining file paths
+	FPS string = string(filepath.Separator)
+
+	//go:embed template/cluster/config.yaml
+	CLUSTER_CONFIG_FILE_BYTES []byte
+
+	//go:embed template/cluster/git-service.yaml
+	CLUSTER_GIT_SERVICE_FILE_BYTES []byte
+
+	//go:embed template/cluster/registry-configmap.yaml
+	CLUSTER_CONFIG_MAP_FILE_BYTES []byte
+
+	kubeClient      *kubernetes.Clientset
 	clusterRootPath = ""
 
 	/*
@@ -67,8 +77,6 @@ var (
 		parent with different run functions
 
 	*/
-
-	clusterUseStr string = "cluster"
 
 	// clusterCmd represents the cluster command specific to the create command
 	clusterCreateCmd = &cobra.Command{
@@ -227,24 +235,25 @@ func cluster() {
 
 	}
 
-	if isClusterRunning() {
-		log.Fatalf("Cluster '%s' is already running", clusterOptions.Name)
-	}
-	createCluster()
+	// if isClusterRunning() {
+	// 	log.Fatalf("Cluster '%s' is already running", clusterOptions.Name)
+	// }
+	//createCluster()
+	kubeClientCreate()
 
 	log.Info("Init cluster...")
-	createNamespaces()
-	createPolicies()
+	// createNamespaces()
+	// createPolicies()
 	createIngress()
-	createRSAKey()
-	installGitServer()
-	configGitInCluster()
-	services.InstallDockerRegistry()
-	services.InstallMongo()
-	installSealedSecrets()
-	installFluxSecrets()
-	installFlux()
-	installFluxHelmOperator()
+	// createRSAKey()
+	// installGitServer()
+	// configGitInCluster()
+	// services.InstallDockerRegistry()
+	// services.InstallMongo()
+	// installSealedSecrets()
+	// installFluxSecrets()
+	// installFlux()
+	// installFluxHelmOperator()
 
 	log.Infof("Cluster '%s' ready please add your deployments in (%s)", clusterOptions.Name, clusterRootPath+"/deploy")
 }
@@ -378,31 +387,31 @@ func createCluster() {
 	if err != nil {
 		log.Fatalf("Failed to start command kind %s\n", err)
 	}
+}
 
+func kubeClientCreate() {
 	log.Infof("Ensuring kubectl context change to kind-%s", clusterOptions.Name)
-	cmd = exec.Command(
-		"kubectl",
-		"cluster-info",
-		"--context",
-		"kind-"+clusterOptions.Name,
-	)
-
-	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("Could not change cluster context to %s", "kind-"+clusterOptions.Name)
-	}
+	kubeClient = services.BuildClient("kind-" + clusterOptions.Name)
 }
 
 func createIngress() {
 	log.Info("Creating ingress...")
 	deploymentURI := "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/kind/deploy.yaml"
 
-	cmd := exec.Command("kubectl", "apply", "-f", deploymentURI)
+	resp, err := http.Get(deploymentURI)
+	check(err)
+	defer resp.Body.Close()
 
-	err := cmd.Run()
-	if err != nil {
-		log.Fatalf("failed to create ingress: %v", err)
-	}
+	deployment := &appsv1.Deployment{}
+	yaml.NewDecoder(resp.Body).Decode(deployment)
+
+	log.Info(deployment)
+
+	deploymentClient := kubeClient.AppsV1().Deployments("ingress")
+	result, err := deploymentClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
+	check(err)
+
+	log.Info("Created deployment %s", result.GetObjectMeta().GetName())
 }
 
 func createNamespaces() {
