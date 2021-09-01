@@ -10,12 +10,10 @@ import (
 	"encoding/pem"
 	"fmt"
 	"html/template"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
 	"path/filepath"
@@ -24,7 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/automotiveMastermind/condo-cli/services"
-	"github.com/creack/pty"
+	"github.com/automotiveMastermind/condo-cli/services/console"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -119,103 +117,6 @@ func init() {
 
 }
 
-func destroyCluster() {
-	dockerCheck()
-	clusterExistCheck()
-	removeGitServerDockerContainer()
-	services.RemoveDockerRegistryDockerContainer()
-	services.RemoveMongoDockerContainer()
-	removeClusterNodes()
-
-	log.Info("Cluster destroyed")
-
-}
-
-func clusterExistCheck() {
-
-	log.Info("Checking that cluster \"" + clusterOptions.Name + "\" exists...")
-
-	//TO-DO check to see if the cluster exists
-
-	out, err := exec.Command("kind", "get", "clusters").Output()
-
-	if err != nil {
-		log.Fatalf("Unknown kind error  %v", err)
-	}
-
-	outputStr := string(out)
-	outputArray := strings.Fields(outputStr)
-
-	if contains(outputArray, clusterOptions.Name) {
-		log.Info("Cluster detected")
-	} else {
-		log.Fatal("Cluster not found, aborting operation...")
-	}
-
-}
-
-//check if a string equivalent exists in a string array
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
-			return true
-		}
-	}
-
-	return false
-}
-
-//removes 'git-server' container from the system's instance of docker
-func removeGitServerDockerContainer() {
-	log.Info("Removing container git-server from docker")
-
-	//stop the git-server container
-	dockerStopCmd := exec.Command(
-		"docker",
-		"stop",
-		"git-server",
-	)
-	var dockerStopErr error
-	dockerStopErr = dockerStopCmd.Run()
-	if dockerStopErr != nil {
-
-		log.Infof("Docker container \"git-server\" failed to stop:  %v", dockerStopErr)
-	}
-
-	//remove the git-server container
-	dockerRemoveCmd := exec.Command(
-		"docker",
-		"rm",
-		"git-server",
-	)
-	var dockerRemoveErr error
-	dockerRemoveErr = dockerRemoveCmd.Run()
-	if dockerRemoveErr != nil {
-
-		log.Infof("Docker container \"git-server\" failed to be removed:  %v", dockerRemoveErr)
-	}
-
-	log.Info("git-server removed from docker")
-
-}
-
-//removes cluster nodes using kind. Use '--name [clusterName]' to specify the cluster name if not default
-func removeClusterNodes() {
-	log.Info("Removing cluster \"" + clusterOptions.Name + "\" from docker...")
-
-	nameFlag := fmt.Sprintf("--name=%s", clusterOptions.Name)
-
-	cmd := exec.Command("kind", "delete", "cluster", nameFlag)
-
-	var err error
-	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("Failed to remove cluster:  %v", err)
-	}
-	log.Info("cluster \"" + clusterOptions.Name + "\" removed from docker")
-
-}
-
 //entry point for "create cluster"
 func cluster() {
 	log.Info("Hello! Welcome to condo create cluster!")
@@ -258,6 +159,18 @@ func cluster() {
 	log.Infof("Cluster '%s' ready please add your deployments in (%s)", clusterOptions.Name, clusterRootPath+"/deploy")
 }
 
+func destroyCluster() {
+	dockerCheck()
+	clusterExistCheck()
+	removeGitServerDockerContainer()
+	services.RemoveDockerRegistryDockerContainer()
+	services.RemoveMongoDockerContainer()
+	removeClusterNodes()
+
+	log.Info("Cluster destroyed")
+
+}
+
 func checkExecDependencies() {
 	checkExecExists("kind")
 	checkExecExists("git")
@@ -269,10 +182,9 @@ func checkExecDependencies() {
 func checkExecExists(executable string) {
 	path, err := exec.LookPath(executable)
 	if err != nil {
-		log.Warningf("'%s' executable not found\n", executable)
-		panic(err)
+		log.Fatalf("'%s' executable not found", executable)
 	} else {
-		log.Debugf("'%s' executable found at '%s'\n", executable, path)
+		log.Debugf("'%s' executable found at '%s'", executable, path)
 	}
 }
 
@@ -280,7 +192,7 @@ func isClusterRunning() bool {
 	cmd := exec.Command("kind", "get", "clusters")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Fatalf("Create cluster failed with %s\n", err)
+		log.Fatalf("Create cluster failed with %s", err)
 	}
 	if !(strings.TrimSpace(string(out)) == "No kind clusters found.") {
 		log.Fatalf("Only one cluster instance is allowed. Please \"destroy\" the previous cluster")
@@ -372,17 +284,7 @@ func createCluster() {
 	configFlag := fmt.Sprintf("--config=%s/cluster/config.yaml", clusterRootPath)
 
 	cmd := exec.Command("kind", "create", "cluster", imageFlag, nameFlag, configFlag)
-	var err error
-	if runtime.GOOS == "windows" {
-		var stdoutBuf, stderrBuf bytes.Buffer
-		cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-		err = cmd.Run()
-	} else {
-		// run in faketty to get better looking output
-		f, _ := pty.Start(cmd)
-		io.Copy(os.Stdout, f)
-	}
+	err := console.Start(cmd)
 
 	if err != nil {
 		log.Fatalf("Failed to start command kind %s\n", err)
@@ -535,19 +437,16 @@ func configGitInCluster() {
 	ip, err := cmd.Output()
 	check(err)
 
-	log.Debug("get template")
-
 	// apply ip to template
 	tpl, err := template.ParseFiles(clusterRootPath + "/cluster/git-service.yaml")
 	check(err)
-
-	log.Debug("template parsed")
 
 	var doc bytes.Buffer
 	tpl.Execute(&doc, string(bytes.Split(ip, []byte("/"))[0]))
 	check(err)
 
-	log.Debug("template injected")
+	log.Trace("Parsed Template (git-service.yaml):")
+	log.Trace(doc.String())
 
 	// attach ip to endpoint and service
 	echo := exec.Command("echo", doc.String())
@@ -567,10 +466,8 @@ func configGitInCluster() {
 
 	res, _ := cmd.Output()
 
-	log.Debug(string(res))
-
+	log.Trace(string(res))
 	log.Debug("service applied")
-
 }
 
 func installSealedSecrets() {
@@ -709,7 +606,6 @@ func copySealedSecret() {
 
 	permChangeErr := os.Chmod(clusterRootPath+FPS+".secrets"+FPS+"sealed-secrets.yaml", 0755)
 	check(permChangeErr)
-
 }
 
 //check if docker engine is running
@@ -718,13 +614,96 @@ func dockerCheck() {
 	log.Info("Looking for docker instance...")
 	cmd := exec.Command("docker", "ps")
 
-	var err error
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		log.Fatalf("No docker instance found:  %v", err)
 	}
 
 	log.Info("Docker instance found")
+
+}
+
+func clusterExistCheck() {
+
+	log.Info("Checking that cluster \"" + clusterOptions.Name + "\" exists...")
+
+	//TO-DO check to see if the cluster exists
+
+	out, err := exec.Command("kind", "get", "clusters").Output()
+
+	if err != nil {
+		log.Fatalf("Unknown kind error  %v", err)
+	}
+
+	outputStr := string(out)
+	outputArray := strings.Fields(outputStr)
+
+	if contains(outputArray, clusterOptions.Name) {
+		log.Info("Cluster detected")
+	} else {
+		log.Fatal("Cluster not found, aborting operation...")
+	}
+
+}
+
+//check if a string equivalent exists in a string array
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+
+	return false
+}
+
+//removes 'git-server' container from the system's instance of docker
+func removeGitServerDockerContainer() {
+	log.Info("Removing container git-server from docker")
+
+	//stop the git-server container
+	dockerStopCmd := exec.Command(
+		"docker",
+		"stop",
+		"git-server",
+	)
+
+	dockerStopErr := dockerStopCmd.Run()
+	if dockerStopErr != nil {
+
+		log.Infof("Docker container \"git-server\" failed to stop:  %v", dockerStopErr)
+	}
+
+	//remove the git-server container
+	dockerRemoveCmd := exec.Command(
+		"docker",
+		"rm",
+		"git-server",
+	)
+
+	dockerRemoveErr := dockerRemoveCmd.Run()
+	if dockerRemoveErr != nil {
+
+		log.Infof("Docker container \"git-server\" failed to be removed:  %v", dockerRemoveErr)
+	}
+
+	log.Info("git-server removed from docker")
+
+}
+
+//removes cluster nodes using kind. Use '--name [clusterName]' to specify the cluster name if not default
+func removeClusterNodes() {
+	log.Info("Removing cluster \"" + clusterOptions.Name + "\" from docker...")
+
+	nameFlag := fmt.Sprintf("--name=%s", clusterOptions.Name)
+
+	cmd := exec.Command("kind", "delete", "cluster", nameFlag)
+
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("Failed to remove cluster:  %v", err)
+	}
+	log.Info("cluster \"" + clusterOptions.Name + "\" removed from docker")
 
 }
 
