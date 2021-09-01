@@ -1,4 +1,4 @@
-package services
+package docker
 
 import (
 	"os/exec"
@@ -33,7 +33,7 @@ func checkDockerRegistryRunning() bool {
 
 }
 
-func InstallDockerRegistry() {
+func InstallRegistry() {
 
 	if checkDockerRegistryRunning() {
 		log.Info(DOCKER_REGISTRY_NAME + " is already running, skipping " + DOCKER_REGISTRY_NAME + " creation.")
@@ -86,8 +86,7 @@ func RemoveDockerRegistryDockerContainer() {
 		"stop",
 		DOCKER_REGISTRY_NAME,
 	)
-	var dockerStopErr error
-	dockerStopErr = dockerStopCmd.Run()
+	dockerStopErr := dockerStopCmd.Run()
 	if dockerStopErr != nil {
 
 		log.Infof("Docker container \""+DOCKER_REGISTRY_NAME+"\" failed to stop:  %v", dockerStopErr)
@@ -99,8 +98,8 @@ func RemoveDockerRegistryDockerContainer() {
 		"rm",
 		DOCKER_REGISTRY_NAME,
 	)
-	var dockerRemoveErr error
-	dockerRemoveErr = dockerRemoveCmd.Run()
+
+	dockerRemoveErr := dockerRemoveCmd.Run()
 	if dockerRemoveErr != nil {
 
 		log.Infof("Docker container \""+DOCKER_REGISTRY_NAME+"\" failed to be removed:  %v", dockerRemoveErr)

@@ -22,7 +22,7 @@ It also installs and auto-configures the following [Git-ops](https://www.weave.w
 3. git-server docker container (specific to flux)
 
 ```
-condo_cli create cluster
+condo create cluster
 ```
 
 The cluster configuration files are located at: `UserRoot/.am/clusters/{your-cluster-name}`
@@ -44,11 +44,11 @@ Used to specify the version of the image to use for the cluster
 
 ---
 
-## Destroy Cluster
-**Gracefully removes the cluster instance from docker, deleting the containers and images.** 
+## Stop Cluster
+**Gracefully removes the cluster instance from docker, deleting the containers and images.**
 
 ```
-condo_cli destroy cluster
+condo stop cluster
 ```
 
 The configuration files for the cluster are presistent at `UserRoot/.am/clusters/{your-cluster-name}` and can be used again to rebuild the cluster. To do this, run the Create Cluster command with the same cluster name. 

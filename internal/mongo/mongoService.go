@@ -1,4 +1,4 @@
-package services
+package mongo
 
 import (
 	"os/exec"
@@ -33,9 +33,9 @@ func checkMongoRunning() bool {
 
 }
 
-func InstallMongo() {
+func Install() {
 
-	if checkDockerRegistryRunning() {
+	if checkMongoRunning() {
 		log.Info(MONGO_INSTANCE_NAME + " is already running, skipping " + MONGO_INSTANCE_NAME + " creation.")
 		return
 	}
@@ -86,8 +86,8 @@ func RemoveMongoDockerContainer() {
 		"stop",
 		MONGO_INSTANCE_NAME,
 	)
-	var mongoStopErr error
-	mongoStopErr = dockerStopCmd.Run()
+
+	mongoStopErr := dockerStopCmd.Run()
 	if mongoStopErr != nil {
 
 		log.Infof("Docker container \""+MONGO_INSTANCE_NAME+"\" failed to stop:  %v", mongoStopErr)
@@ -99,8 +99,8 @@ func RemoveMongoDockerContainer() {
 		"rm",
 		MONGO_INSTANCE_NAME,
 	)
-	var dockerRemoveErr error
-	dockerRemoveErr = dockerRemoveCmd.Run()
+
+	dockerRemoveErr := dockerRemoveCmd.Run()
 	if dockerRemoveErr != nil {
 
 		log.Infof("Docker container \""+MONGO_INSTANCE_NAME+"\" failed to be removed:  %v", dockerRemoveErr)
