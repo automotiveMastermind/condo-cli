@@ -1,4 +1,4 @@
-package services
+package kubernetes
 
 import (
 	"flag"
@@ -54,6 +54,6 @@ func switchContext(ctx, kubeconfigPath string) (err error) {
 		return fmt.Errorf("error ModifyConfig: %w", err)
 	}
 
-	log.Info("Switched to context \"%s\"", ctx)
+	log.Infof("Switched to context \"%s\"", ctx)
 	return nil
 }

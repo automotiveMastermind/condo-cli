@@ -1,4 +1,4 @@
-package services
+package git
 
 import (
 	"encoding/json"
@@ -46,7 +46,7 @@ func loadConfig() Configuration {
 	configuration := Configuration{}
 	err := decoder.Decode(&configuration)
 	if err != nil {
-		log.Fatalf("Failed to laod config.json. %s", err)
+		log.Fatalf("Failed to load config.json. %s", err)
 	}
 
 	return configuration

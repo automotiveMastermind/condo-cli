@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -11,22 +10,20 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
 	"path/filepath"
 
-	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/automotiveMastermind/condo-cli/services"
-	"github.com/automotiveMastermind/condo-cli/services/console"
+	"github.com/automotiveMastermind/condo-cli/internal/console"
+	"github.com/automotiveMastermind/condo-cli/internal/docker"
+	"github.com/automotiveMastermind/condo-cli/internal/git"
+	kube "github.com/automotiveMastermind/condo-cli/internal/kubernetes"
+	"github.com/automotiveMastermind/condo-cli/internal/mongo"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
-	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -43,7 +40,7 @@ var (
 	// cluster options defaults
 	clusterOptions = &ClusterOptions{
 		Name:    "local",
-		Version: "v1.16.15",
+		Version: "v1.18.19",
 		Image:   "kindest/node",
 	}
 
@@ -79,24 +76,23 @@ var (
 	// clusterCmd represents the cluster command specific to the create command
 	clusterCreateCmd = &cobra.Command{
 		Use:   clusterUseStr,
-		Short: "Creates a kube cluster on your local docker instance",
-		Long:  ``,
-
+		Short: "Creates a kubernetes cluster on your local docker instance",
+		Long: `Creates a kubernetes cluster on your local docker instance. 
+On creation it will use the configuration you have already specified in your <clusters> folder. 
+If there is no configuration found then a new one will be generated or pulled from 
+a git repo indicated in the config.`,
 		Run: func(cmd *cobra.Command, args []string) {
-
 			cluster()
-
 		},
 	}
-	// clusterCmd represents the cluster command specific to the destroy command
-	clusterDestroyCmd = &cobra.Command{
+	// clusterCmd represents the cluster command specific to the stop command
+	clusterStopCmd = &cobra.Command{
 		Use:   clusterUseStr,
-		Short: "Removes a kube cluster on your local docker instance",
-		Long:  ``,
+		Short: "Stops the kubernetes cluster on your local docker instance",
+		Long: `Stops the kubernetes cluster on your local docker instance but maintains the configuration
+        and changes you have made in your clusters folder`,
 		Run: func(cmd *cobra.Command, args []string) {
-
-			destroyCluster()
-
+			stopCluster()
 		},
 	}
 )
@@ -107,13 +103,13 @@ func init() {
 	clusterCreateCmd.Flags().StringVar(&clusterOptions.Image, "image", clusterOptions.Image, "Sets the image to use for the cluster")
 	clusterCreateCmd.Flags().StringVar(&clusterOptions.Version, "version", clusterOptions.Version, "Sets the image version for the cluster")
 
-	clusterDestroyCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
+	clusterStopCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
 
 	// add cluster cmd to create
 	createCmd.AddCommand(clusterCreateCmd)
 
-	//add cluster cmd to destroy
-	destroyCommand.AddCommand(clusterDestroyCmd)
+	//add cluster cmd to stop
+	stopCommand.AddCommand(clusterStopCmd)
 
 }
 
@@ -124,50 +120,47 @@ func cluster() {
 	checkExecDependencies()
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
-		services.CreateAuxilaryConfig(clusterRootPath, clusterOptions.Name)
+		git.CreateAuxilaryConfig(clusterRootPath, clusterOptions.Name)
+	} else if !clusterAuxiliaryConfigExists("deploy") {
+		git.CreateAuxilaryConfigDeployOnly(clusterRootPath, clusterOptions.Name)
 
-		//copy existing sealedSecret || TO BE REMOVED TO REPLACED WITH GENERATED SEALED SECRET
-		copySealedSecret()
-	} else if !clusterAuxiliaryConfigExists(clusterOptions.Name, "deploy") {
-		services.CreateAuxilaryConfigDeployOnly(clusterRootPath, clusterOptions.Name)
-
-	} else if !clusterAuxiliaryConfigExists(clusterOptions.Name, "helm") {
-		services.CreateAuxilaryConfigHelmOnly(clusterRootPath, clusterOptions.Name)
-
+	} else if !clusterAuxiliaryConfigExists("helm") {
+		git.CreateAuxilaryConfigHelmOnly(clusterRootPath, clusterOptions.Name)
 	}
 
-	// if isClusterRunning() {
-	// 	log.Fatalf("Cluster '%s' is already running", clusterOptions.Name)
-	// }
-	//createCluster()
+	if isClusterRunning() {
+		log.Fatalf("Cluster '%s' is already running", clusterOptions.Name)
+	}
+
+	createCluster()
 	kubeClientCreate()
 
 	log.Info("Init cluster...")
-	// createNamespaces()
-	// createPolicies()
+	createNamespaces()
+	createPolicies()
 	createIngress()
-	// createRSAKey()
-	// installGitServer()
-	// configGitInCluster()
-	// services.InstallDockerRegistry()
-	// services.InstallMongo()
-	// installSealedSecrets()
-	// installFluxSecrets()
-	// installFlux()
-	// installFluxHelmOperator()
+	createRSAKey()
+	installGitServer()
+	configGitInCluster()
+	docker.InstallRegistry()
+	mongo.Install()
+	installSealedSecrets()
+	installFluxSecrets()
+	installFlux()
+	installFluxHelmOperator()
 
 	log.Infof("Cluster '%s' ready please add your deployments in (%s)", clusterOptions.Name, clusterRootPath+"/deploy")
 }
 
-func destroyCluster() {
+func stopCluster() {
 	dockerCheck()
 	clusterExistCheck()
 	removeGitServerDockerContainer()
-	services.RemoveDockerRegistryDockerContainer()
-	services.RemoveMongoDockerContainer()
+	docker.RemoveDockerRegistryDockerContainer()
+	mongo.RemoveMongoDockerContainer()
 	removeClusterNodes()
 
-	log.Info("Cluster destroyed")
+	log.Info("Cluster stopped")
 
 }
 
@@ -194,8 +187,9 @@ func isClusterRunning() bool {
 	if err != nil {
 		log.Fatalf("Create cluster failed with %s", err)
 	}
+
 	if !(strings.TrimSpace(string(out)) == "No kind clusters found.") {
-		log.Fatalf("Only one cluster instance is allowed. Please \"destroy\" the previous cluster")
+		log.Fatalf("Only one cluster instance is allowed. Please \"stop\" the previous cluster")
 	}
 
 	clusters := bytes.Split(out, []byte("\n"))
@@ -211,66 +205,56 @@ func isClusterRunning() bool {
 func clusterConfigExists(name string) bool {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal("can't find users home directory\n")
+		log.Fatal("can't find users home directory")
 	}
 
-	clusterRootPath = fmt.Sprintf(home+FPS+".am"+FPS+"clusters"+FPS+"%s", name)
+	clusterRootPath = filepath.Join(home, ".am", "clusters", name)
 
 	if _, err := os.Stat(clusterRootPath); os.IsNotExist(err) {
-		log.Infof("Creating new directory for cluster at '%s'\n", clusterRootPath)
+		log.Infof("Creating new directory for cluster at '%s'", clusterRootPath)
 		err := os.MkdirAll(clusterRootPath, 0755)
 		check(err)
 		return false
 	} else {
-
 		log.Infof("Cluster config already exists; will use from directory (%s)", clusterRootPath)
-
 	}
 	return true
 }
 
-func clusterAuxiliaryConfigExists(name string, folder string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal("can't find users home directory\n")
-	}
+func clusterAuxiliaryConfigExists(folder string) bool {
+	path := filepath.Join(clusterRootPath, folder)
+	_, err := os.Stat(path)
 
-	clusterRootPath = fmt.Sprintf(home+FPS+".am"+FPS+"clusters"+FPS+"%s", name)
-
-	if _, err := os.Stat(clusterRootPath + FPS + folder); os.IsNotExist(err) {
-
-		return false
-	}
-	return true
+	return !os.IsNotExist(err)
 }
 
 // create cluster default config files from internal binary
 func createDefaultClusterConfig() {
-
-	err := os.Mkdir(clusterRootPath+FPS+"cluster", 0755)
+	path := filepath.Join(clusterRootPath, "cluster")
+	err := os.Mkdir(path, 0755)
 	if err != nil {
 		log.Fatalf("Failed to create directory: %s", err)
 	}
 
-	//clusterRootPath already set by previous method
+	// clusterRootPath already set by previous method
 	log.Info("Creating cluster configuration")
 
-	//write main config
-	errMainConfig := ioutil.WriteFile(clusterRootPath+FPS+"cluster"+FPS+"config.yaml", CLUSTER_CONFIG_FILE_BYTES, 0644)
+	// write main config
+	errMainConfig := ioutil.WriteFile(filepath.Join(path, "config.yaml"), CLUSTER_CONFIG_FILE_BYTES, 0644)
 	if errMainConfig != nil {
-		log.Fatalf("Embeded file \"config.yaml\" failed to write to directory")
+		log.Fatalf("Embedded file \"config.yaml\" failed to write to directory")
 	}
 
-	//write git service config
-	errGitService := ioutil.WriteFile(clusterRootPath+FPS+"cluster"+FPS+"git-service.yaml", CLUSTER_GIT_SERVICE_FILE_BYTES, 0644)
+	// write git service config
+	errGitService := ioutil.WriteFile(filepath.Join(path, "git-service.yaml"), CLUSTER_GIT_SERVICE_FILE_BYTES, 0644)
 	if errGitService != nil {
-		log.Fatalf("Embeded file \"git-service.yaml\" failed to write to directory")
+		log.Fatalf("Embedded file \"git-service.yaml\" failed to write to directory")
 	}
 
 	//write registry map config
-	errConfigMap := ioutil.WriteFile(clusterRootPath+FPS+"cluster"+FPS+"registry-configmap.yaml", CLUSTER_CONFIG_MAP_FILE_BYTES, 0644)
+	errConfigMap := ioutil.WriteFile(filepath.Join(path, "registry-configmap.yaml"), CLUSTER_CONFIG_MAP_FILE_BYTES, 0644)
 	if errConfigMap != nil {
-		log.Fatalf("Embeded file \"registry-configmap.yaml\" failed to write to directory")
+		log.Fatalf("Embedded file \"registry-configmap.yaml\" failed to write to directory")
 	}
 
 	log.Info("Cluster configurations created")
@@ -281,7 +265,7 @@ func createCluster() {
 	// install via kind
 	imageFlag := fmt.Sprintf("--image=%s:%s", clusterOptions.Image, clusterOptions.Version)
 	nameFlag := fmt.Sprintf("--name=%s", clusterOptions.Name)
-	configFlag := fmt.Sprintf("--config=%s/cluster/config.yaml", clusterRootPath)
+	configFlag := fmt.Sprintf("--config=%s", filepath.Join(clusterRootPath, "cluster", "config.yaml"))
 
 	cmd := exec.Command("kind", "create", "cluster", imageFlag, nameFlag, configFlag)
 	err := console.Start(cmd)
@@ -293,35 +277,25 @@ func createCluster() {
 
 func kubeClientCreate() {
 	log.Infof("Ensuring kubectl context change to kind-%s", clusterOptions.Name)
-	kubeClient = services.BuildClient("kind-" + clusterOptions.Name)
+	kubeClient = kube.BuildClient("kind-" + clusterOptions.Name)
 }
 
 func createIngress() {
 	log.Info("Creating ingress...")
 	deploymentURI := "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/kind/deploy.yaml"
 
-	resp, err := http.Get(deploymentURI)
-	check(err)
-	defer resp.Body.Close()
+	cmd := exec.Command("kubectl", "apply", "-f", deploymentURI)
 
-	deployment := &appsv1.Deployment{}
-	yaml.NewDecoder(resp.Body).Decode(deployment)
-
-	log.Info(deployment)
-
-	deploymentClient := kubeClient.AppsV1().Deployments("ingress")
-	result, err := deploymentClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
-	check(err)
-
-	log.Info("Created deployment %s", result.GetObjectMeta().GetName())
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("failed to create ingress: %v", err)
+	}
 }
 
 func createNamespaces() {
 	log.Info("Creating namespaces...")
-	//TO-DO remove
-	log.Info("kubectl apply -f " + clusterRootPath + FPS + "helm" + FPS + ".cluster" + FPS + "namespaces")
-
-	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+FPS+"helm"+FPS+".cluster"+FPS+"namespaces")
+	path := filepath.Join(clusterRootPath, "helm", ".cluster", "namespaces")
+	cmd := exec.Command("kubectl", "apply", "-f", path)
 
 	err := cmd.Run()
 	if err != nil {
@@ -331,7 +305,8 @@ func createNamespaces() {
 
 func createPolicies() {
 	log.Info("Creating policies...")
-	cmd := exec.Command("kubectl", "apply", "-f", clusterRootPath+FPS+"helm"+FPS+".cluster")
+	path := filepath.Join(clusterRootPath, "helm", ".cluster")
+	cmd := exec.Command("kubectl", "apply", "-f", path)
 
 	err := cmd.Run()
 	if err != nil {
@@ -340,11 +315,11 @@ func createPolicies() {
 }
 
 func createRSAKey() {
-	sshKeyPath := clusterRootPath + FPS + ".ssh"
-	privateKeyPath := sshKeyPath + FPS + "identity"
-	publicKeyPath := sshKeyPath + FPS + "identity.pub"
+	sshKeyPath := filepath.Join(clusterRootPath, ".ssh")
+	privateKeyPath := filepath.Join(sshKeyPath, "identity")
+	publicKeyPath := filepath.Join(sshKeyPath, "identity.pub")
 
-	log.Debugf("ssh-path: %s \nprivate-key: %s \npublic-key: %s \n", sshKeyPath, privateKeyPath, publicKeyPath)
+	log.Tracef("ssh-path: %s \nprivate-key: %s \npublic-key: %s \n", sshKeyPath, privateKeyPath, publicKeyPath)
 
 	_, err := os.Stat(privateKeyPath)
 	_, err2 := os.Stat(publicKeyPath)
@@ -476,11 +451,11 @@ func installSealedSecrets() {
 		"helm",
 		"upgrade",
 		"sealed-secrets-controller",
-		clusterRootPath+FPS+"helm"+FPS+"sealed-secrets",
+		filepath.Join(clusterRootPath, "helm", "sealed-secrets"),
 		"--install",
 		"--wait",
 		"--namespace=kube-system",
-		"--values="+clusterRootPath+FPS+"helm"+FPS+".values"+FPS+"sealed-secrets.yaml",
+		"--values="+filepath.Join(clusterRootPath, "helm", ".values", "sealed-secrets.yaml"),
 	)
 
 	err := cmd.Run()
@@ -489,7 +464,7 @@ func installSealedSecrets() {
 	}
 
 	// reload secret if exists
-	secretsPath := clusterRootPath + FPS + ".secrets" + FPS + "sealed-secrets.yaml"
+	secretsPath := filepath.Join(clusterRootPath, ".secrets", "sealed-secrets.yaml")
 	if _, err = os.Stat(secretsPath); os.IsExist(err) {
 		secret, err := ioutil.ReadFile(secretsPath)
 		check(err)
@@ -526,14 +501,14 @@ func installSealedSecrets() {
 
 func installFluxSecrets() {
 	log.Info("Creating flux secrets")
-
+	path := filepath.Join(clusterRootPath, ".ssh", "identity")
 	cmd := exec.Command(
 		"kubectl",
 		"create",
 		"secret",
 		"generic",
 		"flux-git-deploy",
-		"--from-file="+clusterRootPath+FPS+".ssh"+FPS+"identity",
+		"--from-file="+path,
 		"--namespace=weave",
 	)
 
@@ -545,15 +520,18 @@ func installFluxSecrets() {
 
 func installFlux() {
 	log.Info("Starting flux...")
+
+	path := filepath.Join(clusterRootPath, "helm", "fluxcd", "flux")
+	values := filepath.Join(clusterRootPath, "helm", ".values", "flux.yaml")
 	cmd := exec.Command(
 		"helm",
 		"upgrade",
 		"flux",
-		clusterRootPath+"/helm/fluxcd/flux",
+		path,
 		"--install",
 		"--wait",
 		"--namespace=weave",
-		"--values="+clusterRootPath+FPS+"helm"+FPS+".values"+FPS+"flux.yaml",
+		"--values="+values,
 		"--set=git.branch="+clusterOptions.Name,
 		"--set=git.label=flux-"+clusterOptions.Name,
 	)
@@ -566,15 +544,18 @@ func installFlux() {
 
 func installFluxHelmOperator() {
 	log.Info("Starting flux helm operator...")
+
+	path := filepath.Join(clusterRootPath, "helm", "fluxcd", "helm-operator")
+	values := filepath.Join(clusterRootPath, "helm", ".values", "helm-operator.yaml")
 	cmd := exec.Command(
 		"helm",
 		"upgrade",
 		"flux-helm-operator",
-		clusterRootPath+FPS+"helm"+FPS+"fluxcd"+FPS+"helm-operator",
+		path,
 		"--install",
 		"--wait",
 		"--namespace=weave",
-		"--values="+clusterRootPath+FPS+"helm"+FPS+".values"+FPS+"helm-operator.yaml",
+		"--values="+values,
 		"--set=helm.versions=v3",
 	)
 
@@ -584,42 +565,18 @@ func installFluxHelmOperator() {
 	}
 }
 
-//TO_DO remove and replace with generated secret
-func copySealedSecret() {
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal("can't find users home directory\n")
-	}
-
-	errMk := os.MkdirAll(clusterRootPath+FPS+".secrets"+FPS, 0755)
-	check(errMk)
-
-	commandExec := exec.Command("cp", home+FPS+"sealed-secrets.yaml", clusterRootPath+FPS+".secrets"+FPS)
-	//clusterRootPath already set by a preceeding method
-
-	copyErr := commandExec.Run()
-	if copyErr != nil {
-
-		log.Fatalf("Sealed Secret Copy error:  %s , home:"+home+", clusterRootPath: "+clusterRootPath, copyErr)
-	}
-
-	permChangeErr := os.Chmod(clusterRootPath+FPS+".secrets"+FPS+"sealed-secrets.yaml", 0755)
-	check(permChangeErr)
-}
-
 //check if docker engine is running
 func dockerCheck() {
 
-	log.Info("Looking for docker instance...")
+	log.Info("Checking if docker daemon is running...")
 	cmd := exec.Command("docker", "ps")
 
 	err := cmd.Run()
 	if err != nil {
-		log.Fatalf("No docker instance found:  %v", err)
+		log.Fatalf("Docker daemon was not found:  %v", err)
 	}
 
-	log.Info("Docker instance found")
+	log.Info("Docker daemon running")
 
 }
 
@@ -643,7 +600,6 @@ func clusterExistCheck() {
 	} else {
 		log.Fatal("Cluster not found, aborting operation...")
 	}
-
 }
 
 //check if a string equivalent exists in a string array
@@ -704,7 +660,6 @@ func removeClusterNodes() {
 		log.Fatalf("Failed to remove cluster:  %v", err)
 	}
 	log.Info("cluster \"" + clusterOptions.Name + "\" removed from docker")
-
 }
 
 func check(e error) {
