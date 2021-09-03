@@ -94,7 +94,7 @@ git commit -m "modified podinfo deployment"
 3. Within the context of the deploy folder, preform a git add and commit, eg.
 ```sh
 git add -A
-git commit -m "modified podinfo deployment"
+git commit -m "removed podinfo deployment"
 ```
 4. Your changes will take effect in the cluster within a few minutes
 
