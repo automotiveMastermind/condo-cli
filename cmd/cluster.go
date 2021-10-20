@@ -374,10 +374,10 @@ func installGitServer() {
 		"--name=git-server",
 		"-v"+clusterRootPath+":/git-server/repos",
 		"-v"+clusterRootPath+"/.ssh:/git-server/keys",
-		"jkarlos/git-server-docker",
-	)
+		"jkarlos/git-server-docker")
 
 	err := cmd.Run()
+
 	if err != nil {
 		log.Fatalf("failed to start git server: %v", err)
 	}
@@ -464,7 +464,8 @@ func installSealedSecrets() {
 	}
 
 	// reload secret if exists
-	secretsPath := filepath.Join(clusterRootPath, ".secrets", "sealed-secrets.yaml")
+	secretsDir := filepath.Join(clusterRootPath, ".secrets")
+	secretsPath := filepath.Join(secretsDir, "sealed-secrets.yaml")
 	if _, err = os.Stat(secretsPath); os.IsExist(err) {
 		secret, err := ioutil.ReadFile(secretsPath)
 		check(err)
@@ -495,6 +496,8 @@ func installSealedSecrets() {
 	secret, err := cmd.Output()
 	check(err)
 
+	os.MkdirAll(secretsDir, 0755) //if .secrets folder is missing, create
+	log.Info("Trying to write new file")
 	err = ioutil.WriteFile(secretsPath, secret, 0644)
 	check(err)
 }
@@ -561,7 +564,7 @@ func installFluxHelmOperator() {
 
 	err := cmd.Run()
 	if err != nil {
-		log.Fatal("failed to start flux helm operator: %v", err)
+		log.Fatalf("failed to start flux helm operator: %v", err)
 	}
 }
 
