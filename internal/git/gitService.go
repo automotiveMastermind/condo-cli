@@ -91,12 +91,17 @@ func setUpLocalGitFolder(folderName string, clusterRootPath string, clusterName 
 
 func moveCloneIntoLocalRepo(folderName string, clusterRootPath string) {
 
-	commandRmGit := exec.Command("rm", "-rf", ".git")
-	commandRmGit.Dir = clusterRootPath + FPS + "tmp" + FPS + folderName
-	errRmGit := commandRmGit.Run()
-	if errRmGit != nil {
-		log.Fatalf("Error removing git folder at /tmp/"+folderName+". %s", errRmGit)
-	}
+	// commandRmGit := exec.Command("rm", "-rf", ".git")
+	// commandRmGit.Dir = clusterRootPath + FPS + "tmp" + FPS + folderName
+	// errRmGit := commandRmGit.Run()
+	// if errRmGit != nil {
+	// 	log.Fatalf("Error removing git folder at /tmp/"+folderName+". %s", errRmGit)
+	// }
+
+	removeGitError := os.RemoveAll(clusterRootPath + FPS + "tmp" + FPS + folderName + FPS + ".git")
+    if removeGitError != nil {
+        log.Fatal(removeGitError)
+    }
 
 	errMove := os.Rename(clusterRootPath+FPS+"tmp"+FPS+folderName, clusterRootPath+FPS+folderName)
 
