@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -29,7 +28,7 @@ type RunOptions struct {
 // NewRunOptions creates a default RunOptions with ImageTag set to beta-golang
 func NewRunOptions() *RunOptions {
 	return &RunOptions{
-		ImageTag: "beta-golang",
+		ImageTag: "latest",
 		GoOS:     runtime.GOOS,
 		GoArch:   runtime.GOARCH,
 	}
@@ -57,7 +56,7 @@ func init() {
 }
 
 func run() {
-	imageName := fmt.Sprintf("automotivemastermind/condo:%s", options.ImageTag)
+	imageName := fmt.Sprintf("sjk07/condo:%s", options.ImageTag)
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -81,7 +80,7 @@ func run() {
 	// create condo container
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        imageName,
-		Cmd:          []string{"condo", "--", strings.Join(options.Args, " ")},
+		Cmd:          append([]string{"condo"}, options.Args...),
 		WorkingDir:   "/target",
 		AttachStderr: true,
 		AttachStdout: true,

@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  git:
+    image: jkarlos/git-server-docker:latest
+    ports:
+      - 2222:22
+    networks:
+      - kind
+      
+  registry:
+    image: registry:2
+    ports:
+      - 5000:5000
+    networks:
+      - kind
+
+networks:
+  kind:

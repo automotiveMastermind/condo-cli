@@ -8,34 +8,10 @@ import (
 
 var DOCKER_REGISTRY_NAME string = "docker-image-reg"
 
-func checkDockerRegistryRunning() bool {
+// Run the docker registry on docker
+func Run() {
 
-	cmd := exec.Command(
-		"docker",
-		"container",
-		"inspect",
-		"-f",
-		"'{{.State.Running}}'",
-		DOCKER_REGISTRY_NAME,
-	)
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Infof("%s", err)
-		return false
-	}
-
-	if string(out) == "true" {
-		return true
-	} else {
-		return false
-	}
-
-}
-
-func InstallRegistry() {
-
-	if checkDockerRegistryRunning() {
+	if IsImageRunning(DOCKER_REGISTRY_NAME) {
 		log.Info(DOCKER_REGISTRY_NAME + " is already running, skipping " + DOCKER_REGISTRY_NAME + " creation.")
 		return
 	}
@@ -77,7 +53,8 @@ func InstallRegistry() {
 
 }
 
-func RemoveDockerRegistryDockerContainer() {
+// Stop the docker registry
+func Stop() {
 	log.Info("Removing container " + DOCKER_REGISTRY_NAME + " from docker")
 
 	//stop the git-server container

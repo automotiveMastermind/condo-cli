@@ -3,39 +3,16 @@ package mongo
 import (
 	"os/exec"
 
+	"github.com/automotiveMastermind/condo-cli/internal/docker"
 	log "github.com/sirupsen/logrus"
 )
 
 var MONGO_INSTANCE_NAME string = "mongo-container"
 
-func checkMongoRunning() bool {
+// Run mongo on docker and connect it to the clusters network
+func Run() {
 
-	cmd := exec.Command(
-		"docker",
-		"container",
-		"inspect",
-		"-f",
-		"'{{.State.Running}}'",
-		MONGO_INSTANCE_NAME,
-	)
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Infof("%s", err)
-		return false
-	}
-
-	if string(out) == "true" {
-		return true
-	} else {
-		return false
-	}
-
-}
-
-func Install() {
-
-	if checkMongoRunning() {
+	if docker.IsImageRunning(MONGO_INSTANCE_NAME) {
 		log.Info(MONGO_INSTANCE_NAME + " is already running, skipping " + MONGO_INSTANCE_NAME + " creation.")
 		return
 	}
@@ -77,7 +54,8 @@ func Install() {
 
 }
 
-func RemoveMongoDockerContainer() {
+// Stop mongo running on docker
+func Stop() {
 	log.Info("Removing container " + MONGO_INSTANCE_NAME + " from docker")
 
 	//stop the mongo container
