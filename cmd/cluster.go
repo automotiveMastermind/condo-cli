@@ -2,13 +2,8 @@ package cmd
 
 import (
 	"bytes"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
 	_ "embed"
-	"encoding/pem"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -16,14 +11,15 @@ import (
 
 	"path/filepath"
 
+	"github.com/automotiveMastermind/condo-cli/cmd/cluster"
 	"github.com/automotiveMastermind/condo-cli/internal/console"
 	"github.com/automotiveMastermind/condo-cli/internal/docker"
+	"github.com/automotiveMastermind/condo-cli/internal/flux"
 	"github.com/automotiveMastermind/condo-cli/internal/git"
 	kube "github.com/automotiveMastermind/condo-cli/internal/kubernetes"
 	"github.com/automotiveMastermind/condo-cli/internal/mongo"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/ssh"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -43,9 +39,6 @@ var (
 		Version: "v1.18.19",
 		Image:   "kindest/node",
 	}
-
-	//gets the native OS' filepath separator character, stores it in 'FPS' to use when defining file paths
-	FPS string = string(filepath.Separator)
 
 	//go:embed template/cluster/config.yaml
 	CLUSTER_CONFIG_FILE_BYTES []byte
@@ -82,17 +75,17 @@ On creation it will use the configuration you have already specified in your <cl
 If there is no configuration found then a new one will be generated or pulled from 
 a git repo indicated in the config.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cluster()
+			createCluster()
 		},
 	}
+
 	// clusterCmd represents the cluster command specific to the stop command
-	clusterStopCmd = &cobra.Command{
+	clusterGetCmd = &cobra.Command{
 		Use:   clusterUseStr,
-		Short: "Stops the kubernetes cluster on your local docker instance",
-		Long: `Stops the kubernetes cluster on your local docker instance but maintains the configuration
-        and changes you have made in your clusters folder`,
+		Short: "Gets the kubernetes cluster on your local docker instance",
+		Long:  `Gets the kubernetes cluster on your local docker instance`,
 		Run: func(cmd *cobra.Command, args []string) {
-			stopCluster()
+			//getCluster()
 		},
 	}
 )
@@ -103,68 +96,54 @@ func init() {
 	clusterCreateCmd.Flags().StringVar(&clusterOptions.Image, "image", clusterOptions.Image, "Sets the image to use for the cluster")
 	clusterCreateCmd.Flags().StringVar(&clusterOptions.Version, "version", clusterOptions.Version, "Sets the image version for the cluster")
 
-	clusterStopCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
+	//clusterStopCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
 
 	// add cluster cmd to create
 	createCmd.AddCommand(clusterCreateCmd)
 
 	//add cluster cmd to stop
-	stopCommand.AddCommand(clusterStopCmd)
+	//stopCommand.AddCommand(clusterStopCmd)
 
+	// add cluster cmd to get
+	getCommand.AddCommand(clusterGetCmd)
+
+	// cluster stop
+	stopCmd := cluster.NewCmdStop()
+	stopCmd.Flags().StringVar(&clusterOptions.Name, "name", clusterOptions.Name, "Sets the name of the cluster")
+	stopCommand.AddCommand(stopCmd)
 }
 
 //entry point for "create cluster"
-func cluster() {
+func createCluster() {
 	log.Info("Hello! Welcome to condo create cluster!")
-	dockerCheck()
 	checkExecDependencies()
+
 	if !clusterConfigExists(clusterOptions.Name) {
 		createDefaultClusterConfig()
-		git.CreateAuxilaryConfig(clusterRootPath, clusterOptions.Name)
-	} else if !clusterAuxiliaryConfigExists("deploy") {
-		git.CreateAuxilaryConfigDeployOnly(clusterRootPath, clusterOptions.Name)
-
-	} else if !clusterAuxiliaryConfigExists("helm") {
-		git.CreateAuxilaryConfigHelmOnly(clusterRootPath, clusterOptions.Name)
+		git.CreateConfig(clusterRootPath, clusterOptions.Name, !configExists("deploy"), !configExists("helm"))
 	}
 
 	if isClusterRunning() {
 		log.Fatalf("Cluster '%s' is already running", clusterOptions.Name)
 	}
 
-	createCluster()
+	startCluster()
 	kubeClientCreate()
 
 	log.Info("Init cluster...")
 	createNamespaces()
 	createPolicies()
 	createIngress()
-	createRSAKey()
-	installGitServer()
-	configGitInCluster()
-	docker.InstallRegistry()
-	mongo.Install()
+	git.Run(clusterRootPath)
+	docker.Run()
+	mongo.Run()
 	installSealedSecrets()
-	installFluxSecrets()
-	installFlux()
-	installFluxHelmOperator()
-
+	flux.Install(clusterOptions.Name, clusterRootPath)
 	log.Infof("Cluster '%s' ready please add your deployments in (%s)", clusterOptions.Name, clusterRootPath+"/deploy")
 }
 
-func stopCluster() {
-	dockerCheck()
-	clusterExistCheck()
-	removeGitServerDockerContainer()
-	docker.RemoveDockerRegistryDockerContainer()
-	mongo.RemoveMongoDockerContainer()
-	removeClusterNodes()
-
-	log.Info("Cluster stopped")
-
-}
-
 func checkExecDependencies() {
+	docker.IsRunning()
 	checkExecExists("kind")
 	checkExecExists("git")
 	checkExecExists("kubectl")
@@ -221,7 +200,7 @@ func clusterConfigExists(name string) bool {
 	return true
 }
 
-func clusterAuxiliaryConfigExists(folder string) bool {
+func configExists(folder string) bool {
 	path := filepath.Join(clusterRootPath, folder)
 	_, err := os.Stat(path)
 
@@ -258,10 +237,9 @@ func createDefaultClusterConfig() {
 	}
 
 	log.Info("Cluster configurations created")
-
 }
 
-func createCluster() {
+func startCluster() {
 	// install via kind
 	imageFlag := fmt.Sprintf("--image=%s:%s", clusterOptions.Image, clusterOptions.Version)
 	nameFlag := fmt.Sprintf("--name=%s", clusterOptions.Name)
@@ -312,137 +290,6 @@ func createPolicies() {
 	if err != nil {
 		log.Fatalf("failed to create policies: %v", err)
 	}
-}
-
-func createRSAKey() {
-	sshKeyPath := filepath.Join(clusterRootPath, ".ssh")
-	privateKeyPath := filepath.Join(sshKeyPath, "identity")
-	publicKeyPath := filepath.Join(sshKeyPath, "identity.pub")
-
-	log.Tracef("ssh-path: %s \nprivate-key: %s \npublic-key: %s \n", sshKeyPath, privateKeyPath, publicKeyPath)
-
-	_, err := os.Stat(privateKeyPath)
-	_, err2 := os.Stat(publicKeyPath)
-	if err == nil || err2 == nil {
-		log.Info("RSA keys already exist...")
-		return
-	}
-
-	log.Info("Creating RSA keys...")
-	if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
-		err = os.Mkdir(sshKeyPath, 0755)
-		check(err)
-	}
-
-	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
-	check(err)
-
-	publicRsaKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
-	check(err)
-
-	pubKeyBytes := ssh.MarshalAuthorizedKey(publicRsaKey)
-
-	err = ioutil.WriteFile(publicKeyPath, pubKeyBytes, 0600)
-	check(err)
-
-	// Get ASN.1 DER format
-	privDER := x509.MarshalPKCS1PrivateKey(privateKey)
-
-	// pem.Block
-	privBlock := pem.Block{
-		Type:    "RSA PRIVATE KEY",
-		Headers: nil,
-		Bytes:   privDER,
-	}
-
-	// Private key in PEM format
-	privatePEM := pem.EncodeToMemory(&privBlock)
-
-	err = ioutil.WriteFile(privateKeyPath, privatePEM, 0600)
-	check(err)
-}
-
-func installGitServer() {
-	log.Info("Starting git server...")
-
-	cmd := exec.Command(
-		"docker",
-		"run",
-		"-d",
-		"-p2222:22",
-		"--pull=missing",
-		"--name=git-server",
-		"-v"+clusterRootPath+":/git-server/repos",
-		"-v"+clusterRootPath+"/.ssh:/git-server/keys",
-		"jkarlos/git-server-docker",
-	)
-
-	err := cmd.Run()
-	if err != nil {
-		log.Fatalf("failed to start git server: %v", err)
-	}
-
-	// connect to kind network
-	cmd = exec.Command(
-		"docker",
-		"network",
-		"connect",
-		"kind",
-		"git-server",
-	)
-
-	err = cmd.Run()
-	check(err)
-}
-
-func configGitInCluster() {
-	log.Debug("attach git-server to kind network")
-
-	// find docker ip for git server
-	format := `{{range .Containers}}{{if eq .Name "git-server"}}{{.IPv4Address}}{{end}}{{- end}}`
-	cmd := exec.Command(
-		"docker",
-		"network",
-		"inspect",
-		"kind",
-		"--format",
-		format,
-	)
-
-	ip, err := cmd.Output()
-	check(err)
-
-	// apply ip to template
-	tpl, err := template.ParseFiles(clusterRootPath + "/cluster/git-service.yaml")
-	check(err)
-
-	var doc bytes.Buffer
-	tpl.Execute(&doc, string(bytes.Split(ip, []byte("/"))[0]))
-	check(err)
-
-	log.Trace("Parsed Template (git-service.yaml):")
-	log.Trace(doc.String())
-
-	// attach ip to endpoint and service
-	echo := exec.Command("echo", doc.String())
-	cmd = exec.Command(
-		"kubectl",
-		"apply",
-		"--overwrite=true",
-		"-f",
-		"-",
-	)
-
-	pipe, _ := echo.StdoutPipe()
-	defer pipe.Close()
-
-	cmd.Stdin = pipe
-	echo.Start()
-
-	res, _ := cmd.Output()
-
-	log.Trace(string(res))
-	log.Debug("service applied")
 }
 
 func installSealedSecrets() {
@@ -499,87 +346,6 @@ func installSealedSecrets() {
 	check(err)
 }
 
-func installFluxSecrets() {
-	log.Info("Creating flux secrets")
-	path := filepath.Join(clusterRootPath, ".ssh", "identity")
-	cmd := exec.Command(
-		"kubectl",
-		"create",
-		"secret",
-		"generic",
-		"flux-git-deploy",
-		"--from-file="+path,
-		"--namespace=weave",
-	)
-
-	err := cmd.Run()
-	if err != nil {
-		log.Fatalf("failed to create flux secret: %v", err)
-	}
-}
-
-func installFlux() {
-	log.Info("Starting flux...")
-
-	path := filepath.Join(clusterRootPath, "helm", "fluxcd", "flux")
-	values := filepath.Join(clusterRootPath, "helm", ".values", "flux.yaml")
-	cmd := exec.Command(
-		"helm",
-		"upgrade",
-		"flux",
-		path,
-		"--install",
-		"--wait",
-		"--namespace=weave",
-		"--values="+values,
-		"--set=git.branch="+clusterOptions.Name,
-		"--set=git.label=flux-"+clusterOptions.Name,
-	)
-
-	err := cmd.Run()
-	if err != nil {
-		log.Fatalf("failed to start flux: %v", err)
-	}
-}
-
-func installFluxHelmOperator() {
-	log.Info("Starting flux helm operator...")
-
-	path := filepath.Join(clusterRootPath, "helm", "fluxcd", "helm-operator")
-	values := filepath.Join(clusterRootPath, "helm", ".values", "helm-operator.yaml")
-	cmd := exec.Command(
-		"helm",
-		"upgrade",
-		"flux-helm-operator",
-		path,
-		"--install",
-		"--wait",
-		"--namespace=weave",
-		"--values="+values,
-		"--set=helm.versions=v3",
-	)
-
-	err := cmd.Run()
-	if err != nil {
-		log.Fatal("failed to start flux helm operator: %v", err)
-	}
-}
-
-//check if docker engine is running
-func dockerCheck() {
-
-	log.Info("Checking if docker daemon is running...")
-	cmd := exec.Command("docker", "ps")
-
-	err := cmd.Run()
-	if err != nil {
-		log.Fatalf("Docker daemon was not found:  %v", err)
-	}
-
-	log.Info("Docker daemon running")
-
-}
-
 func clusterExistCheck() {
 
 	log.Info("Checking that cluster \"" + clusterOptions.Name + "\" exists...")
@@ -611,40 +377,6 @@ func contains(s []string, str string) bool {
 	}
 
 	return false
-}
-
-//removes 'git-server' container from the system's instance of docker
-func removeGitServerDockerContainer() {
-	log.Info("Removing container git-server from docker")
-
-	//stop the git-server container
-	dockerStopCmd := exec.Command(
-		"docker",
-		"stop",
-		"git-server",
-	)
-
-	dockerStopErr := dockerStopCmd.Run()
-	if dockerStopErr != nil {
-
-		log.Infof("Docker container \"git-server\" failed to stop:  %v", dockerStopErr)
-	}
-
-	//remove the git-server container
-	dockerRemoveCmd := exec.Command(
-		"docker",
-		"rm",
-		"git-server",
-	)
-
-	dockerRemoveErr := dockerRemoveCmd.Run()
-	if dockerRemoveErr != nil {
-
-		log.Infof("Docker container \"git-server\" failed to be removed:  %v", dockerRemoveErr)
-	}
-
-	log.Info("git-server removed from docker")
-
 }
 
 //removes cluster nodes using kind. Use '--name [clusterName]' to specify the cluster name if not default

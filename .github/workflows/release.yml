@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    branches:
+      - master
+      - next
+      - +([0-9])?(.{+([0-9]),x}).x
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.17.x]
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+      
+      - name: condo
+        uses: automotivemastermind/condo-action@init

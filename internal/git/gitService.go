@@ -9,28 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//gets the native OS' filepath separator character, stores it in 'FPS' to use when defining file paths
-var FPS string = string(filepath.Separator)
-
-//region public functions
-func CreateAuxilaryConfig(clusterRootPath string, clusterName string) {
-	configuration := loadConfig()
-	getGitRepo(configuration.DEPLOY_CONFIG_GIT_REPO, "deploy", configuration.DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-	getGitRepo(configuration.HELM_CONFIG_GIT_REPO, "helm", configuration.HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-}
-
-func CreateAuxilaryConfigDeployOnly(clusterRootPath string, clusterName string) {
-	configuration := loadConfig()
-	getGitRepo(configuration.DEPLOY_CONFIG_GIT_REPO, "deploy", configuration.DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-}
-
-func CreateAuxilaryConfigHelmOnly(clusterRootPath string, clusterName string) {
-	configuration := loadConfig()
-	getGitRepo(configuration.HELM_CONFIG_GIT_REPO, "helm", configuration.HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
-}
-
-//endregion public functions
-
 type Configuration struct {
 	DEPLOY_CONFIG_GIT_REPO        string
 	DEPLOY_CONFIG_GIT_REPO_BRANCH string
@@ -38,6 +16,20 @@ type Configuration struct {
 	HELM_CONFIG_GIT_REPO        string
 	HELM_CONFIG_GIT_REPO_BRANCH string
 }
+
+//region public functions
+func CreateConfig(clusterRootPath string, clusterName string, withDeploy bool, withHelm bool) {
+	configuration := loadConfig()
+	if withDeploy {
+		getGitRepo(configuration.DEPLOY_CONFIG_GIT_REPO, "deploy", configuration.DEPLOY_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
+	}
+
+	if withHelm {
+		getGitRepo(configuration.HELM_CONFIG_GIT_REPO, "helm", configuration.HELM_CONFIG_GIT_REPO_BRANCH, clusterRootPath, clusterName)
+	}
+}
+
+//endregion public functions
 
 func loadConfig() Configuration {
 	file, _ := os.Open("config.json")
@@ -56,7 +48,7 @@ func setUpLocalGitFolder(folderName string, clusterRootPath string, clusterName 
 
 	moveCloneIntoLocalRepo(folderName, clusterRootPath)
 
-	workingFolderUri := clusterRootPath + FPS + folderName
+	workingFolderUri := filepath.Join(clusterRootPath, folderName)
 
 	commandExec := exec.Command("git", "init")
 
@@ -92,13 +84,13 @@ func setUpLocalGitFolder(folderName string, clusterRootPath string, clusterName 
 func moveCloneIntoLocalRepo(folderName string, clusterRootPath string) {
 
 	commandRmGit := exec.Command("rm", "-rf", ".git")
-	commandRmGit.Dir = clusterRootPath + FPS + "tmp" + FPS + folderName
+	commandRmGit.Dir = filepath.Join(clusterRootPath, "tmp", folderName)
 	errRmGit := commandRmGit.Run()
 	if errRmGit != nil {
 		log.Fatalf("Error removing git folder at /tmp/"+folderName+". %s", errRmGit)
 	}
 
-	errMove := os.Rename(clusterRootPath+FPS+"tmp"+FPS+folderName, clusterRootPath+FPS+folderName)
+	errMove := os.Rename(commandRmGit.Dir, filepath.Join(clusterRootPath, folderName))
 
 	if errMove != nil {
 		log.Fatalf("Failed to move files. %v", errMove)
@@ -122,7 +114,7 @@ func getGitRepo(gitUrl string, folderName string, branchName string, clusterRoot
 
 	setUpLocalGitFolder(folderName, clusterRootPath, clusterName)
 
-	errRmTmp := os.RemoveAll(clusterRootPath + FPS + "tmp")
+	errRmTmp := os.RemoveAll(filepath.Join(clusterRootPath, "tmp"))
 	if errRmTmp != nil {
 		log.Fatalf("Failed to remove tmp folder. %s", errRmTmp)
 	}
